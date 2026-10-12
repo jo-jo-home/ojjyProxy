@@ -1,0 +1,4 @@
+# Run the relay container/service on localhost:9000. Replace this hostname.
+wisp.example.com {
+  reverse_proxy 127.0.0.1:9000
+}

@@ -1,0 +1,9 @@
+{
+  "tasks": {
+    "start": "deno run --allow-net --allow-read=public --allow-env=PORT,HOST,RUNTIME_ENGINE,RUNTIME_ORIGINS,WISP_URL,PUBLIC_APP_ORIGIN server.ts",
+    "build": "npm run build",
+    "check": "deno check server.ts"
+  },
+  "deploy": { "runtime": { "type": "dynamic", "entrypoint": "server.ts" } },
+  "fmt": { "lineWidth": 100 }
+}

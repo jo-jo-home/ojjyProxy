@@ -1,0 +1,63 @@
+/* Height-aware refinements: header/footer stay visible while only the body scrolls. */
+dialog[open] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+dialog[open] .dialog-header,
+dialog[open] .dialog-footer {
+  flex: none;
+}
+dialog[open] .dialog-body {
+  min-height: 0;
+  flex: 1;
+  max-height: none;
+  overflow: auto;
+}
+.small-dialog[open] > form {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.docked.browser {
+  display: flex;
+  flex-direction: column;
+}
+.docked.browser .browser-controls {
+  order: -1;
+  flex: none;
+}
+.docked.browser #runtime-frames {
+  position: relative;
+  top: 0;
+  height: auto;
+  min-height: 0;
+  flex: 1;
+}
+@media (max-width: 700px) {
+  .browser {
+    display: flex;
+    flex-direction: column;
+  }
+  .browser .browser-controls {
+    order: -1;
+    flex: none;
+  }
+  .browser #runtime-frames,
+  .browser.controls-hidden #runtime-frames {
+    position: relative;
+    top: 0;
+    height: auto;
+    flex: 1;
+    min-height: 0;
+  }
+  .browser .navigation-pill button {
+    height: 44px;
+  }
+  .home-search input,
+  .address-capsule input,
+  .dialog-body input:not([type=checkbox]),
+  .dialog-body select {
+    font-size: 16px;
+  }
+}

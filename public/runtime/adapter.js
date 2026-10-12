@@ -1,0 +1,242 @@
+import { flattenHeaders, validateWisp } from "/shared.js";
+const params = new URLSearchParams(location.search);
+const token = params.get("token");
+const parentOrigin = params.get("parent");
+const config = self.PROXY_CONFIG;
+const website = document.getElementById("website");
+const message = document.getElementById("message");
+let frame, controller, lastUrl = "", initialized = false;
+function captureLinks() {
+  if (params.get("capture") !== "true") return;
+  try {
+    const doc = website.contentDocument;
+    if (!doc || doc.__ojjyLinkCapture) return;
+    doc.__ojjyLinkCapture = true;
+    doc.addEventListener("click", (event) => {
+      const link = event.target.closest?.('a[target="_blank"]');
+      if (!link) return;
+      const url = new URL(link.href, lastUrl);
+      if (!["http:", "https:"].includes(url.protocol)) return;
+      if (url.origin === location.origin) return; // Do not mistake an encoded route for a real URL.
+      event.preventDefault();
+      send("popup", { url: url.href });
+    }, true);
+  } catch { /* Not all partially initialized documents are accessible. */ }
+}
+const send = (type, data = {}) => {
+  if (parentOrigin && token) {
+    parent.postMessage({ source: "ojjy-runtime", token, type, ...data }, parentOrigin);
+  }
+};
+function fail(error) {
+  message.hidden = false;
+  message.textContent = `Browser could not start\n\n${error.message || error}`;
+  send("error", { message: String(error.message || error) });
+}
+function script(src) {
+  return new Promise((resolve, reject) => {
+    const element = document.createElement("script");
+    element.src = src;
+    element.onload = resolve;
+    element.onerror = () => reject(new Error(`Missing runtime asset: ${src}`));
+    document.head.append(element);
+  });
+}
+function timeout(promise, label, ms = 20000) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(label)), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+async function worker() {
+  const expected = new URL("/runtime/sw.js", location.origin).href;
+  await navigator.serviceWorker.register(expected, { scope: "/runtime/" });
+  if (navigator.serviceWorker.controller?.scriptURL === expected) {
+    return navigator.serviceWorker.controller;
+  }
+  await timeout(
+    new Promise((resolve) => {
+      const changed = () => {
+        if (navigator.serviceWorker.controller?.scriptURL === expected) {
+          navigator.serviceWorker.removeEventListener("controllerchange", changed);
+          resolve();
+        }
+      };
+      navigator.serviceWorker.addEventListener("controllerchange", changed);
+      changed();
+    }),
+    "The matching service worker did not take control. Reload this tab.",
+  );
+  return navigator.serviceWorker.controller;
+}
+async function bareMux() {
+  await script("/runtime/vendor/baremux/index.js");
+  const connection = new BareMux.BareMuxConnection("/runtime/vendor/baremux/worker.js");
+  const selected = params.get("transport") === "libcurl" ? "libcurl" : "epoxy";
+  await connection.setTransport(`/runtime/vendor/${selected}/index.mjs`, [{ wisp: config.wisp }]);
+}
+function canonical() {
+  try {
+    if (frame?.url) return String(frame.url);
+    const actual = website.contentWindow.location.href;
+    if (
+      config.engine === "sj-2.0.67-alpha.2" && frame &&
+      actual.startsWith(location.origin + frame.prefix)
+    ) {
+      return $scramjet.unrewriteUrl(actual, frame.context);
+    }
+    if (/^https?:/.test(actual) && !actual.startsWith(location.origin + "/")) return actual;
+    const prefix = location.origin + (frame?.prefix || config.prefix);
+    if (actual.startsWith(prefix)) {
+      const encoded = actual.slice(prefix.length);
+      return config.engine.startsWith("uv-")
+        ? __uv$config.decodeUrl(encoded)
+        : decodeURIComponent(encoded);
+    }
+  } catch { /* A not-yet-loaded document can be inaccessible. */ }
+  return lastUrl;
+}
+function report(type = "navigation") {
+  const url = canonical();
+  if (!url || !/^https?:\/\//.test(url)) return;
+  let title = new URL(url).hostname;
+  try {
+    title = website.contentDocument?.title || title;
+  } catch { /* During navigation. */ }
+  lastUrl = url;
+  send(type, { url, title });
+}
+async function initialize() {
+  if (parentOrigin !== config.parentOrigin || !token) {
+    throw new Error("Open this runtime from its configured ojjyProxy website.");
+  }
+  if (!isSecureContext || !navigator.serviceWorker) {
+    throw new Error("Service workers require HTTPS (or localhost).");
+  }
+  config.wisp = validateWisp(params.get("wisp") || config.wisp, location.protocol === "https:");
+  if (config.engine === "sj-1.1.0" || config.engine === "sj-2.0.0-alpha") {
+    await script("/runtime/vendor/scramjet.all.js");
+    const { ScramjetController } = $scramjetLoadController();
+    controller = new ScramjetController({
+      prefix: config.prefix,
+      wisp: config.wisp,
+      files: {
+        wasm: "/runtime/vendor/scramjet.wasm.wasm",
+        all: "/runtime/vendor/scramjet.all.js",
+        sync: "/runtime/vendor/scramjet.sync.js",
+      },
+    });
+    await controller.init();
+    if (config.engine === "sj-1.1.0") await bareMux();
+    await worker();
+    frame = controller.createFrame(website);
+  } else if (config.engine === "sj-2.0.67-alpha.2") {
+    await script("/runtime/vendor/scramjet.js");
+    await script("/runtime/vendor/controller.api.js");
+    const api = $scramjetController;
+    Object.assign(api.config, {
+      prefix: config.prefix,
+      scramjetPath: "/runtime/vendor/scramjet.js",
+      wasmPath: "/runtime/vendor/scramjet.wasm",
+      injectPath: "/runtime/vendor/controller.inject.js",
+    });
+    const serviceworker = await worker();
+    const selected = params.get("transport") === "libcurl" ? "libcurl" : "epoxy";
+    // The UMD Libcurl bundle announces its embedded WASM asynchronously.
+    // Its old init() constructs a session before waiting, so await this event first.
+    const wasmReady = selected === "libcurl"
+      ? new Promise((resolve) => document.addEventListener("libcurl_load", resolve, { once: true }))
+      : null;
+    await script(`/runtime/vendor/${selected}/index.js`);
+    if (wasmReady) await timeout(wasmReady, "Libcurl WebAssembly did not initialize.");
+    const Client = selected === "libcurl" ? CurlMod.default : EpxMod.default;
+    const client = new Client({ wisp: config.wisp });
+    await timeout(client.init(), "Could not initialize the transport.");
+    const transport = {
+      get ready() {
+        return client.ready;
+      },
+      init: () => client.init(),
+      connect: (url, protocols, headers, ...callbacks) =>
+        client.connect(url, protocols, Object.fromEntries(headers), ...callbacks),
+      request: async (remote, method, body, headers, signal) => {
+        // Proxy2's older transports take a header object; controller 0.0.14
+        // uses raw pairs in both directions. Normalize input as well as output.
+        const result = await client.request(
+          remote,
+          method,
+          body,
+          Object.fromEntries(headers),
+          signal,
+        );
+        return { ...result, headers: flattenHeaders(result.headers) };
+      },
+    };
+    controller = new api.Controller({ serviceworker, transport });
+    await timeout(controller.wait(), "Controller handshake timed out.");
+    frame = controller.createFrame(website);
+  } else if (config.engine === "sj-2.0.2-alpha") {
+    await bareMux();
+    await worker();
+  } else if (config.engine === "uv-3.2.10") {
+    await script("/runtime/vendor/uv.bundle.js");
+    await script("/runtime/vendor/uv.config.js");
+    await bareMux();
+    await worker();
+  } else throw new Error("Unknown engine version.");
+  if (frame?.addEventListener) frame.addEventListener("urlchange", () => report());
+  initialized = true;
+  navigator.serviceWorker.controller.postMessage({
+    source: "ojjy-policy",
+    domains: (params.get("blocked") || "").split(/\s+/).filter(Boolean),
+  });
+  send("ready", { engine: config.engine, isolated: crossOriginIsolated });
+}
+window.addEventListener("message", async (event) => {
+  if (
+    event.source !== parent || event.origin !== parentOrigin || event.data?.token !== token ||
+    event.data?.source !== "ojjy-shell"
+  ) return;
+  if (!initialized) return;
+  try {
+    const { action, url } = event.data;
+    if (action === "navigate") {
+      const target = new URL(url);
+      if (!["http:", "https:"].includes(target.protocol)) {
+        throw new Error("Invalid website protocol.");
+      }
+      lastUrl = target.href;
+      message.hidden = true;
+      send("loading", { url: lastUrl });
+      if (frame) frame.go(lastUrl);
+      else {website.src = config.prefix + (config.engine.startsWith("uv-")
+          ? __uv$config.encodeUrl(lastUrl)
+          : encodeURIComponent(lastUrl));}
+    } else if (action === "back" || action === "forward") {
+      if (frame) frame[action]();
+      else website.contentWindow.history[action]();
+    } else if (action === "reload") {
+      if (frame) frame.reload();
+      else website.contentWindow.location.reload();
+    } else if (action === "stop") website.contentWindow.stop();
+    else if (action === "clear-cache") {
+      for (const key of await caches.keys()) await caches.delete(key);
+      send("cache-cleared");
+    }
+  } catch (error) {
+    fail(error);
+  }
+});
+website.addEventListener("load", () => {
+  if (initialized && lastUrl) {
+    captureLinks();
+    report("loaded");
+  }
+});
+setInterval(() => {
+  if (initialized && lastUrl) report();
+}, 750);
+initialize().catch(fail);

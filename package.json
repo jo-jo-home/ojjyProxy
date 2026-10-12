@@ -1,0 +1,30 @@
+{
+  "name": "ojjyproxy",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/dev.mjs",
+    "start": "deno task start",
+    "relay": "node relay/server.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "test:browser": "playwright test",
+    "check": "deno check server.ts && deno test --allow-read=public --allow-env=RUNTIME_ENGINE,RUNTIME_ORIGINS,WISP_URL,PUBLIC_APP_ORIGIN tests/server.test.ts && npm test"
+  },
+  "dependencies": {
+    "@mercuryworkshop/wisp-js": "0.4.1",
+    "bare-mux": "npm:@mercuryworkshop/bare-mux@2.1.9",
+    "epoxy-transport": "npm:@mercuryworkshop/epoxy-transport@2.1.28",
+    "libcurl-transport": "npm:@mercuryworkshop/libcurl-transport@1.5.2",
+    "sj-stable": "npm:@mercuryworkshop/scramjet@1.1.0",
+    "sj-alpha0": "npm:@mercuryworkshop/scramjet@2.0.0-alpha",
+    "sj-alpha2": "npm:@mercuryworkshop/scramjet@2.0.2-alpha",
+    "sj-alpha67": "npm:@mercuryworkshop/scramjet@2.0.67-alpha.2",
+    "sj-controller": "npm:@mercuryworkshop/scramjet-controller@0.0.14",
+    "ultraviolet": "npm:@titaniumnetwork-dev/ultraviolet@3.2.10"
+  },
+  "devDependencies": { "@playwright/test": "1.58.2" },
+  "engines": { "node": ">=22" }
+}

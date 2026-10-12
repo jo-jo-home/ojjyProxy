@@ -1,0 +1,129 @@
+{
+  "generatedFrom": "package-lock.json",
+  "engines": {
+    "sj-1.1.0": [
+      {
+        "name": "@mercuryworkshop/scramjet",
+        "version": "1.1.0",
+        "license": "MIT",
+        "repository": {
+          "type": "git",
+          "url": "git+https://github.com/MercuryWorkshop/scramjet.git"
+        }
+      }
+    ],
+    "sj-2.0.0-alpha": [
+      {
+        "name": "@mercuryworkshop/scramjet",
+        "version": "2.0.0-alpha",
+        "license": "MIT",
+        "repository": {
+          "type": "git",
+          "url": "https://github.com/MercuryWorkshop/scramjet"
+        }
+      }
+    ],
+    "sj-2.0.2-alpha": [
+      {
+        "name": "@mercuryworkshop/scramjet",
+        "version": "2.0.2-alpha",
+        "license": "MIT",
+        "repository": {
+          "type": "git",
+          "url": "https://github.com/MercuryWorkshop/scramjet"
+        }
+      }
+    ],
+    "sj-2.0.67-alpha.2": [
+      {
+        "name": "@mercuryworkshop/scramjet",
+        "version": "2.0.67-alpha.2",
+        "license": "AGPL-3.0-only",
+        "repository": {
+          "type": "git",
+          "url": "https://github.com/MercuryWorkshop/scramjet"
+        }
+      },
+      {
+        "name": "@mercuryworkshop/scramjet-controller",
+        "version": "0.0.14",
+        "license": "AGPL-3.0-only",
+        "repository": {
+          "type": "git",
+          "url": "https://github.com/MercuryWorkshop/scramjet.git",
+          "directory": "packages/controller"
+        }
+      }
+    ],
+    "uv-3.2.10": [
+      {
+        "name": "@titaniumnetwork-dev/ultraviolet",
+        "version": "3.2.10",
+        "license": "MIT",
+        "repository": {
+          "type": "git",
+          "url": "git+https://github.com/titaniumnetwork-dev/Ultraviolet.git"
+        }
+      }
+    ]
+  },
+  "adaptations": [
+    {
+      "engine": "sj-2.0.0-alpha",
+      "change": "Guard cross-origin singleton probes",
+      "count": 4
+    }
+  ],
+  "hashes": {
+    "public/vendor/bare-mux/index.js": "80626244b605a12cde14c81ea603ed27908ff80775e6d46d1c1e02912947eefb",
+    "public/vendor/bare-mux/index.mjs": "a33e465a17fd574954cb4034d23373bf0dc5f00b68d229a8f83456400fdc9fac",
+    "public/vendor/bare-mux/worker.js": "de905101f2845a021e35768ec7c008b5d0979aa5ea52bf41a33df9e40eaa8d8f",
+    "public/vendor/epoxy-transport/index.js": "bae1ca90ea0e8f180c29358c95f6b08f227817ef66c4edea8b1024927305ac1d",
+    "public/vendor/epoxy-transport/index.mjs": "1095264b51ed56ef3cbeaa545b2329bf807dea469a0a85d129ca04787643940a",
+    "public/vendor/libcurl-transport/index.cjs": "8dd5a1e84f615f6d50746b94cb7b0d1e55cb9c97bc5d213a7d56038acaec77c6",
+    "public/vendor/libcurl-transport/index.js": "8dd5a1e84f615f6d50746b94cb7b0d1e55cb9c97bc5d213a7d56038acaec77c6",
+    "public/vendor/libcurl-transport/index.mjs": "5d009834e20277d898b7047ee5858f4d0e2ab71d4a7f3edcd428ac840af05503",
+    "public/vendor/sj-1.1.0/scramjet.all.js": "7d8de4965167a27b573bf7022190cfb68c9485d622c5a082e207a1092158d520",
+    "public/vendor/sj-1.1.0/scramjet.bundle.js": "fb4edb23d777062d7233490ec23b69efaa31e85912ad602de48209b2a5a459f7",
+    "public/vendor/sj-1.1.0/scramjet.sync.js": "776e61fe075e231c105ca8f9540cceb631b94f6e565ba5d8470545151e0ba804",
+    "public/vendor/sj-1.1.0/scramjet.wasm.wasm": "ed500d8cb02ea06810707ee40f0eeb5790c2eaa5b53550b19e302815d2b1307a",
+    "public/vendor/sj-2.0.0-alpha/06813b79f94926ac.wasm": "83e345a6b11cafce98206d804693f1c2dfcbc1962cc3c378294e46e6df7e318f",
+    "public/vendor/sj-2.0.0-alpha/09d5a95846afcaf1.wasm": "45ec6b3a5c823f8e4d7a905e8a15413fa2dd9db5ca29e30d6ca3e5bf943d6bd6",
+    "public/vendor/sj-2.0.0-alpha/507621c43f70fc86.wasm": "50686637e7b9adbdd48af1c024616d2c7503f3a189d622496d5ccff3fb8059f1",
+    "public/vendor/sj-2.0.0-alpha/63d477311eb50f38.wasm": "0ea6e940d4216ee2ffd13fa5dab1389b72e277d7705350b2b20aa733ab63254c",
+    "public/vendor/sj-2.0.0-alpha/70102b41994b76de.wasm": "5ac34d4a1048d0912625512cf3c6b0a57606b3bb87cd20a35a604a0c900453ea",
+    "public/vendor/sj-2.0.0-alpha/a31cde01c0b49ef3.wasm": "38c5f3e69d7df48df1354fbc4e74ff6423749c958f08a105886e82a8280bc80e",
+    "public/vendor/sj-2.0.0-alpha/b4f3c1c0e4a92823.wasm": "72e0e76e6d5aade840b47a6ef95a238fb135242f921d89f8622fe6df46b1ec2b",
+    "public/vendor/sj-2.0.0-alpha/d864ec42994880cb.wasm": "55790582692a3c60d7d8ec1cf219a743c19521a9f1f498c8fe2ce90a7d3bf664",
+    "public/vendor/sj-2.0.0-alpha/dbbe994629c3010c.wasm": "f563c53bfb56a0ea1f458609c787c2399e14756fe03408c608677afc752b98b1",
+    "public/vendor/sj-2.0.0-alpha/scramjet.all.js": "14f3766703ab740abc7f35741a387b5be1590f550a7e872a541c0d07dbc6c1a0",
+    "public/vendor/sj-2.0.0-alpha/scramjet.bundle.js": "a8dc749c5fa0c5e5ae1bc6db8c46f73eff484247d5577e5a12fadf8241c6a051",
+    "public/vendor/sj-2.0.0-alpha/scramjet.sync.js": "776e61fe075e231c105ca8f9540cceb631b94f6e565ba5d8470545151e0ba804",
+    "public/vendor/sj-2.0.0-alpha/scramjet.wasm.wasm": "d286d8ac714a8bfeade65a138917d11798372df88176f19811200cb4ca466bdc",
+    "public/vendor/sj-2.0.2-alpha/a68dd7a5344f1722.wasm": "7f38d476b637353d1cbb59dc1d69581096b4b3d5e073662415f2aaee091a643a",
+    "public/vendor/sj-2.0.2-alpha/c34a4f083a11eae2.wasm": "02eaab0fb36ab31d3638cf3a57ffc2c09b392cda5a11c431a469c66ec7ae26a9",
+    "public/vendor/sj-2.0.2-alpha/scramjet.js": "9a65a2944bc16bff2aefc776fcabb90561c5a0737baad03c6e743a67335d7470",
+    "public/vendor/sj-2.0.2-alpha/scramjet.mjs": "8d9fbeadaa39d4833ec33b3ceb6bd8d295963fdaad1241d2d8db7337ccfd92e9",
+    "public/vendor/sj-2.0.2-alpha/scramjet.wasm": "6e030b8c64526cfb229939fba01a962ca09c4852bdc81491c64f5caea9d9369c",
+    "public/vendor/sj-2.0.2-alpha/scramjet_bundled.js": "19ee2e52e2fccc4647239e26acb3391af310032e6d1b77afc414ee7beb6fd56d",
+    "public/vendor/sj-2.0.2-alpha/scramjet_bundled.mjs": "95a78b9b39c285679d37d86c8177d949f3f4192326a6166201bcce1599d887f8",
+    "public/vendor/sj-2.0.2-alpha/types/index.js": "7d57a34524ab58dc1547ebe98cd618e34bc6559d50bcd8af94457dabbf31812b",
+    "public/vendor/sj-2.0.67-alpha.2/controller-external.mjs": "8d6e988d0c913c760ffc3092f653a43ee3429a78487e2a828a2508cff3de130e",
+    "public/vendor/sj-2.0.67-alpha.2/controller.api.js": "9bc38bc6dce704ebf71fd7c418151bf7192b0a6c10e15f1037c77e146c163c91",
+    "public/vendor/sj-2.0.67-alpha.2/controller.inject.js": "4744bb39bcfcdbe2baa43f26c760abc5c6248475da5086b2be0eefcd1724fb87",
+    "public/vendor/sj-2.0.67-alpha.2/controller.sw.js": "805309725993d31a8e540c20c575dcc176a86e7fdfc6b9d69ccf4ee8f94c736d",
+    "public/vendor/sj-2.0.67-alpha.2/scramjet-external.mjs": "f07b4d17ecbadfcf92111bbff290716ce5f7d09a269dac7bd9d2b332a2b26286",
+    "public/vendor/sj-2.0.67-alpha.2/scramjet.js": "e116b8adbdae9e9d9bee6abd8370990faa2615796c2e8fc0b7b8942537c0d92e",
+    "public/vendor/sj-2.0.67-alpha.2/scramjet.mjs": "d3e18558dfe70c2f5efdc97f1ae577ba1c028a62c0f4b6ec2ddea6bef10c5724",
+    "public/vendor/sj-2.0.67-alpha.2/scramjet.wasm": "c8740c340a506686d9e46feb82894ab710cf57cd20564d001d0aef04310661e8",
+    "public/vendor/sj-2.0.67-alpha.2/scramjet_bundled.js": "5a75f164872e6ffe2a65abda8e0923470ceeec72832655687f9e89acf1d4f4b4",
+    "public/vendor/sj-2.0.67-alpha.2/scramjet_bundled.mjs": "05be49668d59cde1fd90374988d5b2b334e381cc7ff0727eb7a7cca1b2e10d89",
+    "public/vendor/sj-2.0.67-alpha.2/temp-types-build/index.js": "ca7c130e36ecf666f7083f62f534651582945207c3300ac680608fa23a5e75e7",
+    "public/vendor/uv-3.2.10/sw.js": "253ef57a74c1ba2e040f082c2006df95219c2bbed942f8515d9042b1f94ded8d",
+    "public/vendor/uv-3.2.10/uv.bundle.js": "24c817c4fef658a57754e07c2c89b185e9de3a2bc4261d7e863b345f27df82c4",
+    "public/vendor/uv-3.2.10/uv.client.js": "9dcde7d7966f3f09c031d4f33bb55110e015f8698b38497328c36fe5c61fa16d",
+    "public/vendor/uv-3.2.10/uv.config.js": "079af8635ee35a2ddab925e0088d1587fec3faead0023957c62b0e9ca38f1135",
+    "public/vendor/uv-3.2.10/uv.handler.js": "cf2c1f15dd34dead5ec4864398244571f8aacad026f9f515427da565b36ee310",
+    "public/vendor/uv-3.2.10/uv.sw.js": "bdaf47b5db2c6b13b97a28df68b67180dc0fcda656776ae345b264c2183b9ef2"
+  }
+}
