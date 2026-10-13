@@ -210,8 +210,10 @@ for (const engine of ENGINES) {
       await page.screenshot({ path: "test-results/browser-chromium.png", animations: "disabled" });
     }
     try {
+      // CI runners cold-start the whole stack (relay, workers, wasm) on the
+      // first engine; allow more time than local hardware needs.
       await expect(website.getByRole("heading", { name: "owned relay works" })).toBeVisible({
-        timeout: 15000,
+        timeout: 25000,
       });
     } catch (error) {
       console.error(
