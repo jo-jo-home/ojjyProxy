@@ -654,6 +654,7 @@ document.querySelectorAll("[data-close]").forEach((node) =>
 document.querySelectorAll("[data-panel]").forEach((node) =>
   node.addEventListener("click", () => openLibrary(node.dataset.panel))
 );
+$("open-help").addEventListener("click", () => $("help").showModal());
 document.querySelectorAll("[data-sort]").forEach((node) =>
   node.addEventListener("click", () => {
     sort = node.dataset.sort;

@@ -305,6 +305,42 @@ for (const engine of ENGINES) {
     ).toBeVisible();
   });
 }
+test("two engines keep live tabs side by side", async ({ page }) => {
+  const selectEngine = async (id) => {
+    // The tabstrip settings button is reachable from both home and browsing.
+    await page.locator("#global-settings").click();
+    await page.locator("#engine-select").selectOption(id);
+    await page.getByRole("button", { name: "save settings", exact: true }).click();
+  };
+  const open = async () => {
+    await page.locator("#new-tab").click();
+    await page.locator("#home-input").fill("http://localhost:8899/");
+    await page.locator("#home-form").evaluate((form) => form.requestSubmit());
+  };
+  const frame = () => page.frameLocator(".runtime-frame:not([hidden])").frameLocator("#website");
+  await page.goto("/");
+  await selectEngine("sj-1.1.0");
+  await open();
+  await expect(frame().getByRole("heading", { name: "owned relay works" })).toBeVisible({
+    timeout: 20000,
+  });
+  await expect(frame().locator("body")).toHaveAttribute("data-cookies", /clientcookie=one/);
+  // Drop the initial blank tab so both remaining tabs carry live pages.
+  await page.getByRole("button", { name: "Close new tab" }).click();
+  // Keep the stable tab alive while Ultraviolet runs beside it.
+  await selectEngine("uv-3.2.10");
+  await open();
+  await expect(frame().getByRole("heading", { name: "owned relay works" })).toBeVisible({
+    timeout: 20000,
+  });
+  await expect(frame().locator("body")).toHaveAttribute("data-cookies", /clientcookie=one/);
+  await expect(page.locator("#tabs .tab")).toHaveCount(2);
+  // Switching back must show the first tab still loaded, not restarted.
+  await page.locator("#tabs .tab").first().click();
+  await expect(frame().locator("body")).toHaveAttribute("data-script", "rewritten-script-ran");
+  await expect(frame().locator("body")).toHaveAttribute("data-cookies", /clientcookie=one/);
+  await expect(page.locator("#address")).toHaveValue("http://localhost:8899/");
+});
 if (process.env.LIVE_PROXY_TESTS === "1") {
   for (const id of ["sj-1.1.0", "sj-2.0.67-alpha.2"]) {
     test(`${id} HTTPS destination through owned Wisp`, async ({ page }) => {

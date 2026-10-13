@@ -62,7 +62,7 @@ UV POST bodies never deliver on WebKit.
 
 **Completion check:** a release/browser/feature matrix identifies passes and limitations; failed cases give actionable errors; version data stays isolated; returning tabs recover without frozen controllers or accidental POST replay.
 
-## Phase 4 — complete the everyday browser experience
+## Phase 4 — complete the everyday browser experience · in progress
 
 - Reorder/pin/duplicate tabs, reopen a closed tab and improve tab overflow/navigation boundaries.
 - Add bookmark folders, home filtering, real recently-opened sorting and richer history controls.
@@ -71,6 +71,14 @@ UV POST bodies never deliver on WebKit.
 - Improve keyboard shortcuts, focus cycling, screen-reader labels and small/landscape layouts.
 - Add optional appearance presets, background modes, density controls and a configured live game-hub link.
 - Add deliberate new-window modes only after testing their worker, isolation and popup behavior.
+
+**Verified so far:** the browsing bar matches the reference layout (six-segment pill, bookmark star
+inside the address capsule); every icon is a clean consistent vector including tab close, strip
+buttons, dialog close, and star toggles; closed tabs reopen from a strip button or Alt+Shift+T;
+"recent" tracks real last-opened order; a shortcuts reference dialog lists the four reliable
+bindings; the address capsule highlights during navigation; cookie persistence across reload and
+simultaneous stable-plus-Ultraviolet tabs are covered by the matrix. Remaining: tab
+reorder/pin/duplicate, bookmark folders, and transport capability surfacing.
 
 **Completion check:** bookmark/tab operations persist correctly; keyboard and touch journeys work; controls remain reachable with an onscreen keyboard; appearance settings never overstate privacy.
 
