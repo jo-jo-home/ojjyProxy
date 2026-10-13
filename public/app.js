@@ -147,6 +147,7 @@ function selectTab(id) {
   $("address").value = tab.url;
   $("browser-error").hidden = !tab.error;
   $("error-message").textContent = tab.error;
+  $("error-context").textContent = tab.url ? `${label(tab.engine)} · ${tab.url}` : "";
   $("browser-status").textContent = `${label(tab.engine)} · ${
     tab.state === "home" ? "ready to browse" : tab.state
   }`;
@@ -488,6 +489,15 @@ function renderShortcuts() {
   add.append(plus, text, sub);
   grid.append(add);
 }
+function dayLabel(time) {
+  const date = new Date(time);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  if (date.toDateString() === today.toDateString()) return "today";
+  if (date.toDateString() === yesterday.toDateString()) return "yesterday";
+  return date.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+}
 function editBookmark(item = null) {
   const form = $("bookmark-form");
   form.reset();
@@ -585,7 +595,18 @@ function renderLibrary() {
     empty.append(icon, message);
     container.append(empty);
   }
+  let lastDay = "";
   for (const item of items) {
+    if (libraryType === "history") {
+      const day = dayLabel(item.time);
+      if (day !== lastDay) {
+        lastDay = day;
+        const heading = document.createElement("div");
+        heading.className = "library-day";
+        heading.textContent = day;
+        container.append(heading);
+      }
+    }
     const row = document.createElement("div");
     row.className = "library-row";
     const open = button("", () => {
@@ -595,7 +616,8 @@ function renderLibrary() {
     const title = document.createElement("strong");
     title.textContent = item.name || item.title;
     const domain = document.createElement("small");
-    domain.textContent = item.url + (item.time ? ` · ${new Date(item.time).toLocaleString()}` : "");
+    domain.textContent = item.url +
+      (item.time ? ` · ${new Date(item.time).toLocaleTimeString()}` : "");
     open.append(title, domain);
     row.append(open);
     if (libraryType === "bookmarks") {
@@ -749,6 +771,16 @@ for (
 $("new-tab").addEventListener("click", () => newTab());
 $("reopen-tab").addEventListener("click", reopenTab);
 $("cm-duplicate").addEventListener("click", menuAction(duplicateTab));
+$("cm-close-others").addEventListener(
+  "click",
+  menuAction((id) => {
+    for (const other of tabs.filter((item) => item.id !== id).map((item) => item.id)) {
+      closeTab(other);
+    }
+    selectTab(id);
+    notify("Other tabs closed.");
+  }),
+);
 $("cm-reopen").addEventListener("click", menuAction(() => reopenTab()));
 $("cm-close").addEventListener("click", menuAction(closeTab));
 document.addEventListener("click", (event) => {
@@ -859,12 +891,14 @@ $("import-data").addEventListener("change", async (event) => {
     event.target.value = "";
   }
 });
-$("home-input").addEventListener("input", () => {
+let suggestionIndex = -1;
+function renderSuggestions() {
   const area = $("suggestions"), query = $("home-input").value.trim().toLowerCase();
   area.replaceChildren();
+  suggestionIndex = -1;
   if (!settings.autocomplete || query.length < 2) {
     area.hidden = true;
-    return;
+    return [];
   }
   const matches = [...bookmarks, ...visits].filter((item, index, all) =>
     all.findIndex((entry) => entry.url === item.url) === index
@@ -873,13 +907,50 @@ $("home-input").addEventListener("input", () => {
       0,
       5,
     );
-  for (const item of matches) {
-    area.append(button(`${item.name || item.title} · ${new URL(item.url).hostname}`, () => {
+  matches.forEach((item, index) => {
+    const option = button(`${item.name || item.title} · ${new URL(item.url).hostname}`, () => {
       navigate(item.url);
       area.hidden = true;
-    }));
-  }
+    });
+    option.dataset.index = String(index);
+    area.append(option);
+  });
   area.hidden = !matches.length;
+  return matches;
+}
+function highlightSuggestion(count, step) {
+  const area = $("suggestions");
+  if (area.hidden || !area.children.length) return false;
+  suggestionIndex = (suggestionIndex + step + count) % count;
+  for (const option of area.children) {
+    option.classList.toggle("active", Number(option.dataset.index) === suggestionIndex);
+  }
+  return true;
+}
+function chooseSuggestion() {
+  const area = $("suggestions");
+  const option = [...area.children].find((item) => item.classList.contains("active"));
+  if (option) {
+    option.click();
+    return true;
+  }
+  return false;
+}
+$("home-input").addEventListener("input", renderSuggestions);
+$("home-input").addEventListener("keydown", (event) => {
+  const area = $("suggestions");
+  const count = area.hidden ? 0 : area.children.length;
+  if (event.key === "ArrowDown" && count) {
+    event.preventDefault();
+    highlightSuggestion(count, 1);
+  } else if (event.key === "ArrowUp" && count) {
+    event.preventDefault();
+    highlightSuggestion(count, -1);
+  } else if (event.key === "Enter" && chooseSuggestion()) {
+    event.preventDefault();
+  } else if (event.key === "Escape") {
+    area.hidden = true;
+  }
 });
 document.addEventListener("keydown", (event) => {
   if (document.querySelector("dialog[open]")) return;
