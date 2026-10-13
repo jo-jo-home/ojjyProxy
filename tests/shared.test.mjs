@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ENGINES, flattenHeaders, toUrl, validateWisp } from "../public/shared.js";
+import { BACKUP_WISP, ENGINES, flattenHeaders, toUrl, validateWisp } from "../public/shared.js";
 test("stable default and exact selectable releases", () => {
   assert.equal(ENGINES[0].id, "sj-1.1.0");
   assert.deepEqual(ENGINES.map((engine) => engine.id), [
@@ -45,4 +45,7 @@ test("transport header normalization preserves repeated Set-Cookie", () => {
     flattenHeaders({ "set-cookie": ["one=1", "two=2"], location: "https://example.com/" }),
     [["set-cookie", "one=1"], ["set-cookie", "two=2"], ["location", "https://example.com/"]],
   );
+});
+test("the official backup relay is a valid secure endpoint", () => {
+  assert.equal(validateWisp(BACKUP_WISP, true), BACKUP_WISP);
 });

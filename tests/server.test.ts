@@ -54,6 +54,46 @@ Deno.test("decoded traversal and unsupported methods are rejected", async () => 
   equal((await handle(new Request("http://localhost:8000/%00"))).status, 400);
   equal((await handle(new Request("http://localhost:8000/", { method: "POST" }))).status, 405);
 });
+Deno.test("optional site password gates the shell until the correct password unlocks it", async () => {
+  const previous = Deno.env.get("SITE_PASSWORD");
+  try {
+    Deno.env.set("SITE_PASSWORD", "ojjythebest");
+    const base = "https://proxy.example.com";
+    const locked = await handle(new Request(base + "/"));
+    equal(locked.status, 200);
+    const lockedBody = await locked.text();
+    // The login page is self-contained and does not leak the real app markup.
+    equal(lockedBody.includes('name="password"'), true);
+    equal(lockedBody.includes("home-input"), false);
+    const blocked = await handle(new Request(base + "/api/config"));
+    equal((await blocked.text()).includes("runtimes"), false);
+    const wrong = await handle(
+      new Request(base + "/auth", {
+        method: "POST",
+        body: "password=nope",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+      }),
+    );
+    equal(wrong.status, 401);
+    const good = await handle(
+      new Request(base + "/auth", {
+        method: "POST",
+        body: "password=ojjythebest",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+      }),
+    );
+    equal(good.status, 303);
+    const cookie = (good.headers.get("set-cookie") || "").split(";")[0];
+    equal(cookie.startsWith("ojjyproxy-key="), true);
+    const open = await handle(new Request(base + "/", { headers: { cookie } }));
+    const openBody = await open.text();
+    equal(openBody.includes("home-input"), true);
+    equal(openBody.includes('name="password"'), false);
+  } finally {
+    if (previous === undefined) Deno.env.delete("SITE_PASSWORD");
+    else Deno.env.set("SITE_PASSWORD", previous);
+  }
+});
 Deno.test("compact mode serves the shell and one runtime on a single origin", async () => {
   const previous = {
     runtime: Deno.env.get("RUNTIME_ENGINE"),

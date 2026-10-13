@@ -1,4 +1,4 @@
-import { ENGINES, toUrl, validateWisp } from "./shared.js";
+import { BACKUP_WISP, ENGINES, toUrl, validateWisp } from "./shared.js";
 const $ = (id) => document.getElementById(id);
 const KEY = "ojjyproxy-app-v1";
 const defaults = {
@@ -564,7 +564,7 @@ function renderLibrary() {
     const copy = document.createElement("div");
     copy.className = "about-copy";
     copy.innerHTML =
-      '<h3>one browser. your connection.</h3><p>ojjyProxy is a standalone project by Jonas Lee, matching ojjy’s game hub blue. It combines four pinned Scramjet releases and Ultraviolet with an operator-owned Wisp relay.</p><p>Primary integration reference: Proxy2. Engines and transports: Mercury Workshop and Titanium Network. Tabs, bookmarks, settings and history are saved on this browser.</p><p><a href="https://github.com/jo-jo-home/ojjyProxy" target="_blank" rel="noopener noreferrer">project source & full blueprint ↗</a> · <a href="/asset-manifest.json" target="_blank" rel="noopener noreferrer">asset versions & hashes ↗</a></p><p>Changing a tab title is cosmetic. Disabling local history does not erase browser history, relay metadata, or website cookies. Older alpha releases are compatibility experiments.</p>';
+      '<h3>one browser. your connection.</h3><p>ojjyProxy is a standalone project by Jonas Lee, matching ojjy’s game hub blue. It combines four pinned Scramjet releases and Ultraviolet with an operator-owned Wisp relay.</p><p>Primary integration reference: Proxy2, shared by The Fool, who also helped with the UI. Engines and transports: Mercury Workshop and Titanium Network. Tabs, bookmarks, settings and history are saved on this browser.</p><p><a href="https://github.com/jo-jo-home/ojjyProxy" target="_blank" rel="noopener noreferrer">project source & full blueprint ↗</a> · <a href="/asset-manifest.json" target="_blank" rel="noopener noreferrer">asset versions & hashes ↗</a></p><p>Changing a tab title is cosmetic. Disabling local history does not erase browser history, relay metadata, or website cookies. Older alpha releases are compatibility experiments.</p>';
     container.append(copy);
     return;
   }
@@ -853,6 +853,18 @@ $("retry").addEventListener("click", () => {
   navigate(tab.url, tab);
 });
 $("test-relay").addEventListener("click", testRelay);
+$("use-default-wisp").addEventListener("click", () => {
+  if (!configuration?.wisp) {
+    $("settings-message").textContent = "This website has no default relay configured.";
+    return;
+  }
+  $("settings-form").elements.wisp.value = configuration.wisp;
+  $("settings-message").textContent = "Default endpoint filled in. Save settings to apply.";
+});
+$("use-backup-wisp").addEventListener("click", () => {
+  $("settings-form").elements.wisp.value = BACKUP_WISP;
+  $("settings-message").textContent = "Official backup endpoint filled in. Save settings to apply.";
+});
 $("library-filter").addEventListener("input", renderLibrary);
 $("library-add").addEventListener("click", () => editBookmark());
 $("clear-cache").addEventListener("click", () => {

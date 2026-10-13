@@ -1,6 +1,6 @@
 {
   "tasks": {
-    "start": "deno run --allow-net --allow-read=public --allow-env=PORT,HOST,RUNTIME_ENGINE,RUNTIME_ORIGINS,WISP_URL,PUBLIC_APP_ORIGIN server.ts",
+    "start": "deno run --allow-net --allow-read=public --allow-env=PORT,HOST,RUNTIME_ENGINE,RUNTIME_ORIGINS,WISP_URL,PUBLIC_APP_ORIGIN,SITE_PASSWORD server.ts",
     "build": "npm run build",
     "check": "deno check server.ts"
   },

@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import http from "node:http";
 import { WebSocketServer } from "ws";
-import { ENGINES } from "../../public/shared.js";
+import { BACKUP_WISP, ENGINES } from "../../public/shared.js";
 let fixture, sockets, socketHost;
 test.beforeAll(async () => {
   fixture = http.createServer((request, response) => {
@@ -115,6 +115,11 @@ test("blue home, full selector, bookmarks and responsive settings", async ({ pag
   await page.getByRole("button", { name: "customize", exact: true }).click();
   await expect(page.locator("#engine-select")).toHaveValue("sj-1.1.0");
   await expect(page.locator("#engine-select option")).toHaveCount(5);
+  // The quick relay buttons fill the form without saving.
+  await page.getByRole("button", { name: "use official backup" }).click();
+  await expect(page.locator("#settings-form [name=wisp]")).toHaveValue(BACKUP_WISP);
+  await page.getByRole("button", { name: "use default" }).click();
+  await expect(page.locator("#settings-form [name=wisp]")).toHaveValue("ws://localhost:9000/wisp/");
   await page.locator("#settings [data-close]").first().click();
   await page.getByRole("button", { name: /add a shortcut/ }).click();
   await page.locator("#bookmark-form [name=name]").fill("My fixture");

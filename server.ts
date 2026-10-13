@@ -77,9 +77,53 @@ function response(body: BodyInit | null, status = 200, contentType = "text/plain
     },
   });
 }
+// Optional site password gate. Set SITE_PASSWORD on the outer app to require a
+// password before any page or asset is served. The five runtime origins must
+// not set it: they load inside cross-origin iframes that never receive this
+// cookie, and they already reject foreign parents on their own.
+const AUTH_COOKIE = "ojjyproxy-key";
+async function gateToken() {
+  const secret = environment("SITE_PASSWORD");
+  if (!secret) return "";
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+function hasCookie(request: Request, value: string) {
+  return (request.headers.get("cookie") || "").split(";")
+    .some((part) => part.trim() === `${AUTH_COOKIE}=${value}`);
+}
+function loginPage(again = false) {
+  return response(
+    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ojjyProxy</title><style>body{margin:0;min-height:100dvh;display:grid;place-content:center;background:#0a1628;color:#c8d6e5;font-family:'Segoe UI',system-ui,sans-serif}main{width:min(340px,calc(100% - 40px));border:1px solid #1e3a5f;background:#111d2e;border-radius:16px;padding:34px}h1{font-weight:300;letter-spacing:.05em;color:#e2e8f0;margin:0 0 6px;font-size:1.7rem}p{color:#90a3b9;font-size:13px;margin:0 0 20px}#again{color:#e05555}input{width:100%;box-sizing:border-box;border:1px solid #1e3a5f;background:#0a1628;color:#e2e8f0;border-radius:10px;padding:12px 13px;font-size:16px}button{width:100%;margin-top:14px;border:1px solid #2e6bbd;background:#2e6bbd;color:#fff;border-radius:10px;padding:12px;font-size:14px;cursor:pointer}</style></head><body><main><h1>ojjyProxy</h1><p>enter the site password to continue</p>${
+      again ? '<p id="again">that password was not right. try again.</p>' : ""
+    }<form method="post" action="/auth"><input type="password" name="password" autocomplete="current-password" autofocus required><button type="submit">continue</button></form></main></body></html>`,
+    again ? 401 : 200,
+    MIME.html,
+  );
+}
 export async function handle(request: Request): Promise<Response> {
   const url = new URL(request.url);
+  const token = await gateToken();
+  if (url.pathname === "/auth") {
+    if (!token) return response("This website has no password configured.", 404);
+    if (request.method !== "POST") return response("Method not allowed", 405);
+    const submitted = new URLSearchParams(await request.text()).get("password");
+    if (submitted === environment("SITE_PASSWORD")) {
+      return new Response(null, {
+        status: 303,
+        headers: {
+          "location": "/",
+          "set-cookie": `${AUTH_COOKIE}=${token}; Path=/; Max-Age=2592000; SameSite=Lax${
+            url.protocol === "https:" ? "; Secure" : ""
+          }`,
+          "cache-control": "no-store",
+        },
+      });
+    }
+    return loginPage(true);
+  }
   if (!["GET", "HEAD"].includes(request.method)) return response("Method not allowed", 405);
+  if (token && !hasCookie(request, token)) return loginPage();
   try {
     // Compact mode: one origin serves the shell AND a single runtime, so the
     // whole product (and its Wisp relay via the reverse proxy) lives behind

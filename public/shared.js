@@ -50,3 +50,6 @@ export function validateWisp(value, secure = false) {
   }
   return url.href;
 }
+// Manually-switchable backup relay operated by another site. Traffic through it
+// is visible to that operator; switching is always an explicit user action.
+export const BACKUP_WISP = "wss://dhf5wz2rpzatr.cloudfront.net/wisr/";

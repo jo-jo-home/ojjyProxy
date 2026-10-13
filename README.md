@@ -55,7 +55,9 @@ compatibility, browser features, advanced tools and release polish.
 - Exact default hub palette: `#0a1628`, `#111d2e`, `#162a42`, `#1e3a5f`, `#2e6bbd`.
 - App-managed tabs, lazy session restoration, real destination addresses, back/forward/reload.
 - Desktop floating pill controls, optional docked controls, responsive mobile layout and settings.
-- Five engine/version choices, five search providers, and your configurable owned Wisp endpoint.
+- Five engine/version choices, five search providers, and your configurable owned Wisp endpoint with
+  one-click **use default** / **use official backup** switching.
+- Optional site password gate: set `SITE_PASSWORD` on the outer app to serve a password page first.
 - Bookmark creation, editing, favorites, shortcuts, import/export, local history, local suggestions.
 - Theme selection, reduced-motion/performance mode, browser-tab title/icon customization,
   fullscreen.
@@ -82,7 +84,8 @@ Wisp relay.
    and five runtime subdomains to **the same Deno application**. The server selects the runtime from
    the hostname; six codebases are unnecessary.
 4. Set `PUBLIC_APP_ORIGIN`, `WISP_URL`, and `RUNTIME_ORIGINS` in Deno’s production environment.
-   Example values below are **placeholders**:
+   Optionally set `SITE_PASSWORD` on the outer app only to require that password before the website
+   loads. Example values below are **placeholders**:
 
 ```text
 PUBLIC_APP_ORIGIN=https://proxy.example.com
@@ -186,6 +189,10 @@ private/loopback destinations by default, and uses Wisp’s total per-connection
 checking is not user authentication. The 0.4.1 per-host stream limiter is disabled because its
 upstream implementation iterates a non-iterable object.
 
+Settings can also fill the endpoint with one click: **use default** restores the server’s `WISP_URL`,
+and **use official backup** switches to a second relay run by another site. Switching is always
+manual, and traffic through the backup is visible to that operator.
+
 For development, `npm run relay` starts the relay alone on `127.0.0.1:9000`. `WISP_TEST_MODE=1`
 permits the loopback fixture only in nonproduction tests bound to `127.0.0.1`; it is never enabled
 for production.
@@ -259,8 +266,9 @@ built-in Epoxy.
 - [Proxy2 version audit](research_notes/ojjyProxy%20multiversion%20project%20blueprint/proxy2-versions.md).
 - [Screenshot-inspired design specification](research_notes/ojjyProxy%20multiversion%20project%20blueprint/screenshot-design.md).
 - Earlier research files are historical; their alpha67-default recommendation is superseded.
-- Primary examples: user-supplied **Proxy2**. Other references: Mercury Workshop Scramjet, Epoxy,
-  BareMux, Wisp and templates; Titanium Network Ultraviolet; InvisiProxyLTS; ojjy’s game hub.
+- Primary examples: user-supplied **Proxy2**, shared by **The Fool**, who also helped with UI
+  development. Other references: Mercury Workshop Scramjet, Epoxy, BareMux, Wisp and templates;
+  Titanium Network Ultraviolet; InvisiProxyLTS; ojjy’s game hub.
 
 Original application code is published under **AGPL-3.0-only**. Upstream components retain their own
 terms and notices. `public/notices/` preserves available package notices, and
