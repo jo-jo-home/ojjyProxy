@@ -1,0 +1,15 @@
+# Compact single-origin deployment: shell + one runtime + relay behind one domain.
+# Run on one VPS. Caddy terminates TLS and routes /wisp/ WebSocket upgrades to
+# the local relay; everything else goes to the Deno frontend. Put an AWS
+# CloudFront distribution in front of this domain for a random
+# *.cloudfront.net address that restrictive networks can reach.
+
+proxy.example.com {
+	# The owned Wisp relay: WebSocket upgrade support is automatic in Caddy.
+	handle /wisp/* {
+		reverse_proxy 127.0.0.1:9000
+	}
+	handle {
+		reverse_proxy 127.0.0.1:8000
+	}
+}

@@ -126,6 +126,11 @@ test("blue home, full selector, bookmarks and responsive settings", async ({ pag
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "customize", exact: true }).click();
   await expect(page.getByRole("button", { name: "save settings", exact: true })).toBeVisible();
+  // Discreet input masks the address bar for shared screens.
+  await page.locator("#settings-form [name=discreet]").check();
+  await expect(page.locator("#home-input")).toHaveAttribute("type", "password");
+  await page.locator("#settings-form [name=discreet]").uncheck();
+  await expect(page.locator("#home-input")).toHaveAttribute("type", "text");
   await page.screenshot({ path: "test-results/settings-mobile.png" });
   const width = await page.evaluate(() => document.documentElement.scrollWidth);
   expect(width).toBeLessThanOrEqual(390);

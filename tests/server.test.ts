@@ -54,3 +54,50 @@ Deno.test("decoded traversal and unsupported methods are rejected", async () => 
   equal((await handle(new Request("http://localhost:8000/%00"))).status, 400);
   equal((await handle(new Request("http://localhost:8000/", { method: "POST" }))).status, 405);
 });
+Deno.test("compact mode serves the shell and one runtime on a single origin", async () => {
+  const previous = {
+    runtime: Deno.env.get("RUNTIME_ENGINE"),
+    single: Deno.env.get("SINGLE_RUNTIME"),
+    parent: Deno.env.get("PUBLIC_APP_ORIGIN"),
+    origins: Deno.env.get("RUNTIME_ORIGINS"),
+  };
+  try {
+    Deno.env.set("RUNTIME_ENGINE", "sj-1.1.0");
+    Deno.env.set("SINGLE_RUNTIME", "1");
+    Deno.env.delete("RUNTIME_ORIGINS");
+    Deno.env.delete("PUBLIC_APP_ORIGIN");
+    const base = "https://proxy.example.com";
+    const home = await handle(new Request(base + "/"));
+    equal(home.status, 200);
+    // The shell stays at the root; the runtime is nested under /runtime/.
+    const homeBody = await home.text();
+    equal(homeBody.includes("ojjyProxy"), true);
+    equal(homeBody.includes("starting browser"), false);
+    const runtimePage = await handle(new Request(base + "/runtime/index.html"));
+    equal(runtimePage.status, 200);
+    equal((await runtimePage.text()).includes("starting browser"), true);
+    const config = await handle(new Request(base + "/runtime/config.js"));
+    const text = await config.text();
+    equal(text.includes('"engine":"sj-1.1.0"'), true);
+    // Compact defaults the runtime's parent to the shared origin.
+    equal(text.includes('"parentOrigin":"https://proxy.example.com"'), true);
+    const api = await handle(new Request(base + "/api/config"));
+    const state = await api.json();
+    equal(state.compact, true);
+    equal(state.runtimes["sj-1.1.0"], "https://proxy.example.com");
+    equal(Object.keys(state.runtimes).length, 1);
+    const vendor = await handle(new Request(base + "/runtime/vendor/scramjet.all.js"));
+    equal(vendor.status, 200);
+    const health = await handle(new Request(base + "/health"));
+    equal((await health.json()).role, "sj-1.1.0");
+  } finally {
+    if (previous.runtime === undefined) Deno.env.delete("RUNTIME_ENGINE");
+    else Deno.env.set("RUNTIME_ENGINE", previous.runtime);
+    if (previous.single === undefined) Deno.env.delete("SINGLE_RUNTIME");
+    else Deno.env.set("SINGLE_RUNTIME", previous.single);
+    if (previous.parent === undefined) Deno.env.delete("PUBLIC_APP_ORIGIN");
+    else Deno.env.set("PUBLIC_APP_ORIGIN", previous.parent);
+    if (previous.origins === undefined) Deno.env.delete("RUNTIME_ORIGINS");
+    else Deno.env.set("RUNTIME_ORIGINS", previous.origins);
+  }
+});

@@ -46,6 +46,7 @@ function origins(url: URL): Record<string, string> {
     : {};
 }
 function runtimeConfig(url: URL, engine: string) {
+  const compact = environment("SINGLE_RUNTIME") === "1";
   const configuredParent = environment("PUBLIC_APP_ORIGIN");
   const parent = configuredParent ? new URL(configuredParent) : null;
   if (
@@ -59,6 +60,7 @@ function runtimeConfig(url: URL, engine: string) {
     wisp: environment("WISP_URL") ||
       (isLocal(url.hostname) ? `ws://${url.hostname}:9000/wisp/` : ""),
     parentOrigin: parent?.origin ||
+      (compact ? url.origin : "") ||
       (isLocal(url.hostname) ? `${url.protocol}//${url.hostname}:8000` : ""),
   };
 }
@@ -79,7 +81,11 @@ export async function handle(request: Request): Promise<Response> {
   const url = new URL(request.url);
   if (!["GET", "HEAD"].includes(request.method)) return response("Method not allowed", 405);
   try {
-    const registry = origins(url);
+    // Compact mode: one origin serves the shell AND a single runtime, so the
+    // whole product (and its Wisp relay via the reverse proxy) lives behind
+    // one domain — the deployment shape that survives restrictive networks.
+    const compact = environment("SINGLE_RUNTIME") === "1";
+    const registry = compact ? { [environment("RUNTIME_ENGINE")]: url.origin } : origins(url);
     const engine = environment("RUNTIME_ENGINE") ||
       Object.entries(registry).find(([, origin]) => origin === url.origin)?.[0];
     if (engine && !ENGINES.some((item: { id: string }) => item.id === engine)) {
@@ -90,6 +96,7 @@ export async function handle(request: Request): Promise<Response> {
         JSON.stringify({
           engines: ENGINES,
           runtimes: registry,
+          compact,
           ...runtimeConfig(url, engine || ""),
         }),
         200,
@@ -140,7 +147,11 @@ export async function handle(request: Request): Promise<Response> {
             : relative;
         pathname = `/vendor/${folder}/${leaf}`;
       }
-    } else if (pathname === "/") pathname = engine ? "/runtime/index.html" : "/index.html";
+    } else if (pathname === "/") {
+      // Compact mode keeps the outer shell at the root; the runtime lives
+      // under /runtime/ on this same origin.
+      pathname = engine && !compact ? "/runtime/index.html" : "/index.html";
+    }
     const file = new URL(`.${pathname}`, publicRoot);
     if (!file.href.startsWith(publicRoot.href)) return response("Forbidden", 403);
     let data: Uint8Array;

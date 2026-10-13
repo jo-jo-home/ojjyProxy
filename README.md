@@ -128,6 +128,40 @@ during the build.
 explicitly approve this frontend-only arrangement. Provider acceptance remains an unresolved
 deployment condition; the same Deno server can also run on a host that permits the whole use case.
 
+## Compact single-origin deployment (restrictive-network mode)
+
+For networks that block known hosting domains or multi-origin layouts, ojjyProxy can run as
+**one origin**: the shell, one runtime, and the Wisp relay all behind a single domain — the same
+architecture used by proxies that survive school and workplace filtering. Your multi-origin Deno
+setup stays as it is; this is an additional deployment shape.
+
+On one VPS (Fly.io, Railway, Hetzner, any host permitting outbound TCP):
+
+1. **Frontend + runtime** — run the same Deno server with:
+
+```sh
+SINGLE_RUNTIME=1 RUNTIME_ENGINE=sj-1.1.0 \
+WISP_URL=wss://your-domain.example.com/wisp/ \
+deno task start
+```
+
+`SINGLE_RUNTIME=1` serves the shell at `/` and the Scramjet 1.1.0 runtime under `/runtime/` on
+this origin, and the engine selector honestly offers only the engine that is actually deployed.
+
+2. **Relay** — start the owned relay beside it: `npm run relay` (port 9000).
+
+3. **Reverse proxy** — terminate TLS and route the two services with the included
+[compact.Caddyfile.example](relay/compact.Caddyfile.example): everything to the Deno server,
+`/wisp/*` (WebSocket upgrades included) to the relay.
+
+4. **CDN front (recommended)** — create a free AWS CloudFront distribution pointing at your
+domain. The site becomes a random `*.cloudfront.net` address — a plain CDN subdomain with no
+proxy category, reachable on 443 only, with no separate relay host for a filter to flag.
+
+Two client-side options help on monitored screens: **Discreet input** (Settings → More options)
+masks the address bar with dots, and the existing tab title/icon appearance controls rename what
+observers see in tab lists.
+
 ## Deploy your owned Wisp relay
 
 The included Node server is `relay/server.mjs`, using the same pinned Wisp dependency as Proxy2.

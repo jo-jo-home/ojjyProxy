@@ -16,6 +16,7 @@ const defaults = {
   autocomplete: true,
   restore: true,
   captureWindows: true,
+  discreet: false,
   blocked: "",
 };
 let saved = {};
@@ -24,6 +25,7 @@ try {
 } catch { /* Recover from corrupt local data. */ }
 let settings = { ...defaults, ...saved.settings };
 if (!ENGINES.some((engine) => engine.id === settings.engine)) settings.engine = defaults.engine;
+if (typeof settings.discreet !== "boolean") settings.discreet = false;
 let bookmarks = Array.isArray(saved.bookmarks)
   ? saved.bookmarks.filter((item) => item && /^https?:\/\//.test(item.url))
   : [
@@ -115,6 +117,10 @@ function setTheme() {
     icon.href = "/icon.svg";
   }
   $("default-engine").textContent = ENGINES.find((engine) => engine.id === settings.engine).label;
+  // Discreet input masks what you type so shared-screen monitoring only sees dots.
+  for (const id of ["address", "home-input"]) {
+    $(id).type = settings.discreet ? "password" : "text";
+  }
 }
 function newTab(url = "", engine = settings.engine, select = true, restore = null) {
   if (tabs.length >= 20) return notify("Close a tab before opening more (20-tab limit).");
@@ -736,12 +742,24 @@ function showControls(show) {
   $("show-controls").hidden = show;
   $("browser").classList.toggle("controls-hidden", !show);
 }
-for (const engine of ENGINES) {
-  const option = document.createElement("option");
-  option.value = engine.id;
-  option.textContent = engine.label;
-  $("engine-select").append(option);
+function populateEngineOptions(available) {
+  const select = $("engine-select");
+  const previous = settings.engine;
+  select.replaceChildren();
+  for (const engine of available) {
+    const option = document.createElement("option");
+    option.value = engine.id;
+    option.textContent = engine.label;
+    select.append(option);
+  }
+  if (available.some((engine) => engine.id === previous)) select.value = previous;
 }
+// Live preview: the address bar masks as soon as the toggle flips.
+$("settings-form").elements.namedItem("discreet").addEventListener("change", (event) => {
+  for (const id of ["address", "home-input"]) {
+    $(id).type = event.target.checked ? "password" : "text";
+  }
+});
 document.querySelectorAll("[data-close]").forEach((node) =>
   node.addEventListener("click", () => node.closest("dialog").close())
 );
@@ -975,12 +993,22 @@ async function boot() {
     if (!response.ok) throw new Error("Server settings could not be loaded.");
     configuration = await response.json();
     registry = configuration.runtimes;
+    // Offer only engines this deployment can actually run. Compact mode and
+    // partially configured multi-origin setups stay honest in the selector.
+    const available = Object.keys(registry).length
+      ? ENGINES.filter((engine) => registry[engine.id])
+      : ENGINES;
+    populateEngineOptions(available);
+    if (!available.some((engine) => engine.id === settings.engine)) {
+      settings.engine = (available[0] || ENGINES[0]).id;
+    }
     if (!settings.wisp) settings.wisp = configuration.wisp;
-    const missing = ENGINES.filter((engine) => !registry[engine.id]);
+    const missing = available.filter((engine) => !registry[engine.id]);
     if (!settings.wisp || missing.length) {
       $("setup-banner").hidden = false;
-      $("setup-banner").textContent =
-        "Setup needed: configure your owned WISP_URL and five RUNTIME_ORIGINS on Deno. The interface is ready; browsing starts when those services are configured.";
+      $("setup-banner").textContent = !settings.wisp && missing.length
+        ? "Setup needed: configure your owned WISP_URL and the remaining runtime origins. The interface is ready; browsing starts when those services are configured."
+        : "Setup needed: configure your owned WISP_URL. The interface is ready; browsing starts when the relay is reachable.";
       $("connection-label").textContent = "setup needed";
     } else $("connection-label").textContent = "owned relay configured";
   } catch (error) {
