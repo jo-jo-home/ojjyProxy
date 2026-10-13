@@ -506,11 +506,18 @@ function renderLibrary() {
     `${item.name || item.title} ${item.url}`.toLowerCase().includes(filter)
   );
   if (!items.length) {
-    const empty = document.createElement("p");
+    const empty = document.createElement("div");
     empty.className = "library-empty";
-    empty.textContent = libraryType === "bookmarks"
+    const icon = document.createElement("span");
+    icon.className = "empty-icon";
+    icon.innerHTML = `<svg aria-hidden="true"><use href="#i-${
+      libraryType === "bookmarks" ? "star" : "clock"
+    }"/></svg>`;
+    const message = document.createElement("p");
+    message.textContent = libraryType === "bookmarks"
       ? "no saved sites here yet."
       : "no local visits here yet.";
+    empty.append(icon, message);
     container.append(empty);
   }
   for (const item of items) {
