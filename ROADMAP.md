@@ -52,11 +52,13 @@ The [extensive blueprint](reports/ojjyProxy%20multiversion%20project%20blueprint
 - Validate target-blank and scripted popups individually; distinguish supported capture from unsupported cases.
 - Expand CI with stable, controlled fixtures rather than relying on changing third-party pages.
 
-**Verified so far:** the full deep fixture matrix passes on Chromium (Epoxy and Libcurl) and on
-Firefox. Firefox needed the shell's cross-origin isolation removed, request bodies buffered past
-its absent `Request.body` getter, engine document COEP normalized away, and 2.0.0-alpha sockets
-bridged. One recorded gap remains: `?dest=worker` rewritten workers never deliver on Firefox
-outside 2.0.2-alpha, and Safari is still untested.
+**Verified so far:** the full deep fixture matrix passes on Chromium (Epoxy and Libcurl), Firefox
+(Epoxy and Libcurl), and WebKit for stable, 2.0.0-alpha, and 2.0.2-alpha. Firefox needed the
+shell's cross-origin isolation removed, request bodies buffered past its absent `Request.body`
+getter, engine document COEP normalized away, and 2.0.0-alpha sockets bridged. Recorded gaps:
+`?dest=worker` rewritten workers deliver only on 2.0.2-alpha under Firefox; 2.0.67-alpha.2 is
+skipped on WebKit (wasm rewriter arrow-comment output plus a controller-RPC DataCloneError);
+UV POST bodies never deliver on WebKit.
 
 **Completion check:** a release/browser/feature matrix identifies passes and limitations; failed cases give actionable errors; version data stays isolated; returning tabs recover without frozen controllers or accidental POST replay.
 

@@ -168,8 +168,9 @@ Browser tests cover all five engines through the owned relay using a controlled 
 rewritten JavaScript, dynamic fetch, client/server cookies, links, canonical address updates, back
 navigation, domain filtering, POST bodies, dedicated workers, destination WebSocket echo, redirects
 with query and fragment, and the responsive interface. The full deep matrix passes on **Chromium
-with Epoxy, Chromium with Libcurl, and Firefox**. These are controlled-fixture checks, not a
-guarantee for all websites or browsers; Safari remains untested.
+(Epoxy and Libcurl) and Firefox (Epoxy and Libcurl)**, and on **WebKit for stable, 2.0.0-alpha, and
+2.0.2-alpha with every deep check**. These are controlled-fixture checks, not a guarantee for all
+websites or browsers.
 
 Firefox required four compatibility fixes, each recorded in the build manifest:
 
@@ -189,6 +190,15 @@ Firefox required four compatibility fixes, each recorded in the build manifest:
   load but never deliver their first message on Firefox for stable, 2.0.0-alpha,
   2.0.67-alpha.2, and UV; 2.0.2-alpha workers (inline data URLs) work. Tests record this as an
   annotation instead of asserting it.
+
+WebKit adds two engine-specific gaps, both recorded in the test matrix rather than hidden:
+
+- **2.0.67-alpha.2 is skipped on WebKit.** Its wasm rewriter emits arrow-comment chains
+  (`=>/*scramtag*/{`) that WebKit's parser rejects, and its controller RPC hits a DataCloneError
+  inside the service worker. Both live in runtime-generated, wasm-driven code that a build
+  patch cannot reach.
+- **UV 3.2.10 POST bodies never deliver on WebKit.** Pages, scripts, cookies, and navigation
+  pass; the deep block is annotated and skipped there.
 
 Optional external HTTPS smoke tests:
 
