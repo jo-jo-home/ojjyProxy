@@ -206,6 +206,9 @@ for (const engine of ENGINES) {
     await page.locator("#home-form").evaluate((form) => form.requestSubmit());
     const runtime = page.frameLocator(".runtime-frame:not([hidden])");
     const website = runtime.frameLocator("#website");
+    if (engine.id === "sj-1.1.0") {
+      await page.screenshot({ path: "test-results/browser-chromium.png", animations: "disabled" });
+    }
     try {
       await expect(website.getByRole("heading", { name: "owned relay works" })).toBeVisible({
         timeout: 15000,
@@ -276,6 +279,11 @@ for (const engine of ENGINES) {
           });
         }
         await expect(website.locator("body")).toHaveAttribute("data-socket", "echo:hello");
+        // Both client-set and server-set cookies must survive a full reload.
+        await page.locator("#nav-reload").click();
+        await expect(website.locator("body")).toHaveAttribute("data-fetched", "true");
+        await expect(website.locator("body")).toHaveAttribute("data-cookies", /clientcookie=one/);
+        await expect(website.locator("body")).toHaveAttribute("data-cookies", /servercookie=two/);
         await page.locator("#address").fill("http://localhost:8899/redirect");
         await page.locator("#address-form").evaluate((form) => form.requestSubmit());
         await expect(website.getByRole("heading", { name: "next fixture page" })).toBeVisible();

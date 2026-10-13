@@ -151,6 +151,10 @@ function selectTab(id) {
     tab.state === "home" ? "ready to browse" : tab.state
   }`;
   $("nav-bookmark").classList.toggle("starred", bookmarks.some((item) => item.url === tab.url));
+  $("address-form").classList.toggle(
+    "loading",
+    !!tab.url && (tab.state === "loading" || tab.state === "starting"),
+  );
   if (tab.url && !tab.iframe) startRuntime(tab, tab.url);
   renderTabs();
   persist();
@@ -172,8 +176,10 @@ function renderTabs() {
     title.className = "tab-title";
     title.textContent = tab.url ? tab.title : "new tab";
     select.append(mark, title);
-    const close = button("×", () => closeTab(tab.id), "tab-close");
+    const close = button("", () => closeTab(tab.id), "tab-close");
     close.setAttribute("aria-label", `Close ${tab.title}`);
+    close.title = "Close tab";
+    close.innerHTML = '<svg aria-hidden="true"><use href="#i-x"/></svg>';
     group.append(select, close);
     area.append(group);
   }
@@ -188,12 +194,30 @@ function destroyRuntime(tab) {
 function closeTab(id) {
   const index = tabs.findIndex((item) => item.id === id);
   if (index < 0) return;
-  destroyRuntime(tabs[index]);
+  const closed = tabs[index];
+  destroyRuntime(closed);
   tabs.splice(index, 1);
+  // Remember the address so a slip of the mouse is recoverable.
+  if (closed.url) {
+    closedTabs.unshift({ title: closed.title, url: closed.url, engine: closed.engine });
+    closedTabs.length = Math.min(closedTabs.length, 10);
+  }
+  updateReopen();
   if (!tabs.length) newTab();
   else if (activeId === id) selectTab(tabs[Math.min(index, tabs.length - 1)].id);
   else renderTabs();
   persist();
+}
+const closedTabs = [];
+function updateReopen() {
+  $("reopen-tab").hidden = !closedTabs.length;
+}
+function reopenTab() {
+  const saved = closedTabs.shift();
+  updateReopen();
+  if (!saved) return;
+  const opened = newTab("", saved.engine);
+  if (opened) navigate(saved.url, opened);
 }
 function errorTab(tab, message) {
   clearTimeout(tab.timer);
@@ -320,6 +344,12 @@ window.addEventListener("message", (event) => {
     if (data.type === "loaded") {
       tab.state = "loaded";
       log("loaded", `${tab.engine} · ${tab.url}`);
+      // Track real most-recently-opened order for bookmark sorting.
+      const saved = bookmarks.find((item) => item.url === tab.url);
+      if (saved && saved.lastOpenedAt !== Date.now()) {
+        saved.lastOpenedAt = Date.now();
+        persist();
+      }
     }
     if (settings.history && tab.state === "loaded" && tab.recordedUrl !== tab.url) {
       visits.unshift({
@@ -347,6 +377,10 @@ window.addEventListener("message", (event) => {
     $("browser-status").textContent = `${label(tab.engine)} · ${tab.state}`;
     $("nav-bookmark").classList.toggle("starred", bookmarks.some((item) => item.url === tab.url));
     $("browser-error").hidden = !tab.error;
+    $("address-form").classList.toggle(
+      "loading",
+      tab.url && (tab.state === "loading" || tab.state === "starting"),
+    );
   }
 });
 function renderShortcuts() {
@@ -354,8 +388,10 @@ function renderShortcuts() {
   grid.replaceChildren();
   const items = [...bookmarks];
   if (sort === "az") items.sort((a, b) => a.name.localeCompare(b.name));
-  else if (sort === "recent") items.sort((a, b) => (b.added || 0) - (a.added || 0));
-  else items.sort((a, b) => Number(b.favorite) - Number(a.favorite));
+  // "Recent" means most recently opened, falling back to when it was added.
+  else if (sort === "recent") {
+    items.sort((a, b) => (b.lastOpenedAt ?? b.added ?? 0) - (a.lastOpenedAt ?? a.added ?? 0));
+  } else items.sort((a, b) => Number(b.favorite) - Number(a.favorite));
   for (const item of items) {
     const card = button("", () => navigate(item.url), "shortcut-card");
     const icon = document.createElement("span");
@@ -370,7 +406,7 @@ function renderShortcuts() {
     if (item.favorite) {
       const star = document.createElement("span");
       star.className = "card-star";
-      star.textContent = "★";
+      star.innerHTML = '<svg aria-hidden="true"><use href="#i-star"/></svg>';
       card.append(star);
     }
     grid.append(card);
@@ -378,7 +414,7 @@ function renderShortcuts() {
   const add = button("", () => editBookmark(), "shortcut-card add-card");
   const plus = document.createElement("span");
   plus.className = "site-icon";
-  plus.textContent = "+";
+  plus.innerHTML = '<svg aria-hidden="true"><use href="#i-plus"/></svg>';
   const text = document.createElement("span");
   text.className = "site-name";
   text.textContent = "add a shortcut";
@@ -491,12 +527,15 @@ function renderLibrary() {
     open.append(title, domain);
     row.append(open);
     if (libraryType === "bookmarks") {
-      row.append(button(item.favorite ? "★" : "☆", () => {
+      const favorite = button("", () => {
         item.favorite = !item.favorite;
         persist();
         renderLibrary();
         renderShortcuts();
-      }));
+      }, "star-btn" + (item.favorite ? " starred" : ""));
+      favorite.title = item.favorite ? "Remove from favourites" : "Add to favourites";
+      favorite.innerHTML = '<svg aria-hidden="true"><use href="#i-star"/></svg>';
+      row.append(favorite);
       row.append(button("edit", () => editBookmark(item)));
     }
     row.append(button("remove", () => {
@@ -635,6 +674,7 @@ for (
   ]
 ) $(id).addEventListener("click", openSettings);
 $("new-tab").addEventListener("click", () => newTab());
+$("reopen-tab").addEventListener("click", reopenTab);
 $("fullscreen").addEventListener("click", async () => {
   try {
     if (document.fullscreenElement) await document.exitFullscreen();
@@ -769,7 +809,8 @@ document.addEventListener("keydown", (event) => {
   }
   if (event.altKey && event.key.toLowerCase() === "t" && !typing) {
     event.preventDefault();
-    newTab();
+    if (event.shiftKey) reopenTab();
+    else newTab();
   }
 });
 async function boot() {
