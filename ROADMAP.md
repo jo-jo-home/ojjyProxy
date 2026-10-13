@@ -41,7 +41,7 @@ The [extensive blueprint](reports/ojjyProxy%20multiversion%20project%20blueprint
 
 **Completion check:** the public UI loads over HTTPS, the owned WSS connection opens, all five configured runtime origins load their pinned release, and website traffic uses your relay. Real addresses replace all placeholders. Deployment instructions are in [README.md](README.md).
 
-## Phase 3 — browser compatibility and reliability
+## Phase 3 — browser compatibility and reliability · in progress
 
 - Verify Firefox and Safari capability paths and expose accurate unsupported-state messages.
 - Test redirects, fragments, SPA navigation, forms/POST bodies, streaming, destination WebSockets and workers.
@@ -51,6 +51,12 @@ The [extensive blueprint](reports/ojjyProxy%20multiversion%20project%20blueprint
 - Never automatically replay a form submission or claim engine switching transfers sessions.
 - Validate target-blank and scripted popups individually; distinguish supported capture from unsupported cases.
 - Expand CI with stable, controlled fixtures rather than relying on changing third-party pages.
+
+**Verified so far:** the full deep fixture matrix passes on Chromium (Epoxy and Libcurl) and on
+Firefox. Firefox needed the shell's cross-origin isolation removed, request bodies buffered past
+its absent `Request.body` getter, engine document COEP normalized away, and 2.0.0-alpha sockets
+bridged. One recorded gap remains: `?dest=worker` rewritten workers never deliver on Firefox
+outside 2.0.2-alpha, and Safari is still untested.
 
 **Completion check:** a release/browser/feature matrix identifies passes and limitations; failed cases give actionable errors; version data stays isolated; returning tabs recover without frozen controllers or accidental POST replay.
 

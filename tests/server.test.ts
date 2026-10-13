@@ -7,7 +7,10 @@ function equal(actual: unknown, expected: unknown) {
 Deno.test("Deno shell serves headers and never exposes a forwarding endpoint", async () => {
   const home = await handle(new Request("http://localhost:8000/"));
   equal(home.status, 200);
-  equal(home.headers.get("cross-origin-embedder-policy"), "require-corp");
+  // Cross-origin isolation is intentionally absent: nothing in the stack uses
+  // SharedArrayBuffer, and a require-corp shell would force COEP onto proxied
+  // documents, which makes Firefox reject their same-origin worker scripts.
+  equal(home.headers.get("cross-origin-embedder-policy"), null);
   equal(home.headers.get("cross-origin-opener-policy"), "same-origin");
   equal(home.headers.get("content-type"), "text/html; charset=utf-8");
   equal((await handle(new Request("http://localhost:8000/wisp/"))).status, 404);

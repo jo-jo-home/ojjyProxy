@@ -71,9 +71,7 @@ function response(body: BodyInit | null, status = 200, contentType = "text/plain
       "x-content-type-options": "nosniff",
       "referrer-policy": "no-referrer",
       "cross-origin-opener-policy": "same-origin",
-      "cross-origin-embedder-policy": "require-corp",
       "cross-origin-resource-policy": "cross-origin",
-      "permissions-policy": "cross-origin-isolated=*",
     },
   });
 }

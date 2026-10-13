@@ -73,12 +73,23 @@ function blocked(request) {
 }
 async function route(event) {
   await policyReady;
+  if (!["GET", "HEAD"].includes(event.request.method)) {
+    // Firefox does not expose fetch bodies through Request.body, so every engine
+    // would read null and send empty POSTs. Buffer the body once and shadow the
+    // getter; engines and transports then handle a plain ArrayBuffer everywhere.
+    try {
+      const buffer = await event.request.clone().arrayBuffer();
+      Object.defineProperty(event.request, "body", {
+        value: buffer.byteLength ? buffer : null,
+        configurable: true,
+      });
+    } catch { /* Keep the browser-provided body when it cannot be buffered. */ }
+  }
   if (blocked(event.request)) {
     return new Response("This domain is blocked by your ojjyProxy domain filter.", {
       status: 403,
       headers: {
         "content-type": "text/plain",
-        "cross-origin-embedder-policy": "require-corp",
         "cross-origin-resource-policy": "cross-origin",
         "cross-origin-opener-policy": "same-origin",
       },
@@ -98,14 +109,24 @@ async function route(event) {
 }
 function embeddingResponse(event, response) {
   const pathname = new URL(event.request.url).pathname;
-  if (!pathname.startsWith(config.prefix) || !['document', 'iframe'].includes(event.request.destination)) return response;
-  // Match the physical ancestor policy: older engine responses may emit
-  // credentialless, which Firefox cannot embed below our require-corp shell.
+  if (
+    !pathname.startsWith(config.prefix) ||
+    !["document", "iframe"].includes(event.request.destination)
+  ) return response;
+  // The proxied document is same-origin with the runtime page, so the parent's
+  // require-corp policy is satisfied without any COEP of its own. Older engines
+  // emit credentialless here, which Firefox refuses to embed, and require-corp
+  // makes Firefox reject same-origin worker and blob scripts. Drop the header:
+  // keep CORP so the parent can embed the response, and COOP for window naming.
   const headers = new Headers(response.headers);
-  headers.set('cross-origin-embedder-policy', 'require-corp');
-  headers.set('cross-origin-resource-policy', 'cross-origin');
-  headers.set('cross-origin-opener-policy', 'same-origin');
-  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+  headers.delete("cross-origin-embedder-policy");
+  headers.set("cross-origin-resource-policy", "cross-origin");
+  headers.set("cross-origin-opener-policy", "same-origin");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }
 self.addEventListener("fetch", (event) =>
   event.respondWith(
@@ -116,7 +137,6 @@ self.addEventListener("fetch", (event) =>
         status: 502,
         headers: {
           "content-type": "text/plain; charset=utf-8",
-          "cross-origin-embedder-policy": "require-corp",
           "cross-origin-resource-policy": "cross-origin",
           "cross-origin-opener-policy": "same-origin",
         },

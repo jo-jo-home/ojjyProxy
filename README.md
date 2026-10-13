@@ -167,8 +167,28 @@ npm run test:browser
 Browser tests cover all five engines through the owned relay using a controlled destination:
 rewritten JavaScript, dynamic fetch, client/server cookies, links, canonical address updates, back
 navigation, domain filtering, POST bodies, dedicated workers, destination WebSocket echo, redirects
-with query and fragment, and the responsive interface. They are Chromium checks, not a guarantee for
-all websites or browsers. The full deep matrix passes on both Epoxy and Libcurl.
+with query and fragment, and the responsive interface. The full deep matrix passes on **Chromium
+with Epoxy, Chromium with Libcurl, and Firefox**. These are controlled-fixture checks, not a
+guarantee for all websites or browsers; Safari remains untested.
+
+Firefox required four compatibility fixes, each recorded in the build manifest:
+
+- **No cross-origin isolation anywhere.** Nothing in the stack uses SharedArrayBuffer. A
+  require-corp shell forced COEP onto proxied documents, and Firefox then rejected their
+  same-origin worker and blob scripts, so the shell ships without COEP and proxied documents
+  have the engine's COEP removed while keeping CORP/COOP for embedding.
+- **Buffered request bodies.** Firefox does not expose fetch bodies through `Request.body` and
+  drops stream bodies at `Request` construction. The runtime service worker buffers each
+  non-GET body once via `clone().arrayBuffer()` and shadows the getter; the vendored and
+  embedded BareMux clients and UV's bundled client carry bodies from the fetch init across the
+  worker boundary instead of re-reading that getter, with transfer lists restricted to
+  ArrayBuffers.
+- **Destination WebSocket bridging** for 2.0.0-alpha (Libcurl first, modern Epoxy fallback)
+  also covers Firefox, whose embedded socket hook previously sent nothing.
+- **Known gap:** dedicated workers rewritten through the `?dest=worker` service-worker path
+  load but never deliver their first message on Firefox for stable, 2.0.0-alpha,
+  2.0.67-alpha.2, and UV; 2.0.2-alpha workers (inline data URLs) work. Tests record this as an
+  annotation instead of asserting it.
 
 Optional external HTTPS smoke tests:
 

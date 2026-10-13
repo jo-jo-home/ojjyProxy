@@ -246,7 +246,7 @@ function startRuntime(tab, target) {
   iframe.title = `${label(tab.engine)} runtime`;
   iframe.setAttribute(
     "allow",
-    "cross-origin-isolated; fullscreen; clipboard-read; clipboard-write",
+    "fullscreen; clipboard-read; clipboard-write",
   );
   iframe.allowFullscreen = true;
   iframe.src = url.href;
@@ -650,7 +650,7 @@ $("home-form").addEventListener("submit", (event) => {
 });
 $("address-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  $('address').blur();
+  $("address").blur();
   navigate($("address").value);
 });
 $("nav-home").addEventListener("click", () => {

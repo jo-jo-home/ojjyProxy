@@ -47,6 +47,73 @@ for (const [engine, deps] of Object.entries(packages)) {
 for (const dep of ["bare-mux", "epoxy-transport", "epoxy-modern", "libcurl-transport"]) {
   await copyDist(dep, `public/vendor/${dep}`);
 }
+// Firefox does not expose request bodies through Request.body (the getter is
+// null even for buffered bodies) and drops stream bodies at Request
+// construction. Carry the body directly from the fetch init — buffering
+// streams once — and never read it back through the getter. Guard the worker
+// transfer list so only ArrayBuffers are marked transferable.
+{
+  const file = "public/vendor/bare-mux/index.js";
+  const source = await readFile(file, "utf8");
+  const patches = [
+    ['async fetch(e,r){const a=new Request(e,r)', 'async fetch(e,r){if(r&&r.body instanceof ReadableStream)r={...r,body:await new Response(r.body).arrayBuffer()};const a=new Request(e,r)'],
+    ["n=a.body;", "n=r?.body??null;"],
+    ["n?[n]:[])", "n instanceof ArrayBuffer?[n]:[])"],
+  ];
+  for (const [needle] of patches) if (!source.includes(needle)) throw new Error(`BareMux pattern changed: ${needle}`);
+  await writeFile(file, patches.reduce((text, [from, to]) => text.replace(from, to), source));
+  manifest.adaptations.push({ component: "bare-mux@2.1.9", change: "Carry request bodies from the init across the worker boundary" });
+}
+// Stable 1.1.0 embeds its own private BareMux copy, so the vendored patch never
+// reaches it. Apply the same init-carry handling inside its internal client.
+{
+  const file = "public/vendor/sj-1.1.0/scramjet.all.js";
+  const source = await readFile(file, "utf8");
+  const patches = [
+    ["async fetch(e,t){let r=new Request(e,t)", 'async fetch(e,t){if(t&&t.body instanceof ReadableStream)t={...t,body:await new Response(t.body).arrayBuffer()};let r=new Request(e,t)'],
+    ["s=r.body,o=new URL(r.url)", "s=t?.body??null,o=new URL(r.url)"],
+    ["s?[s]:[])", "s instanceof ArrayBuffer?[s]:[])"],
+  ];
+  for (const [needle] of patches) if (!source.includes(needle)) throw new Error(`Stable internal client pattern changed: ${needle}`);
+  await writeFile(file, patches.reduce((text, [from, to]) => text.replace(from, to), source));
+  manifest.adaptations.push({ engine: "sj-1.1.0", change: "Carry request bodies from the init inside the embedded private BareMux" });
+}
+// UV's bundled client re-exposes every body through the same getter; its
+// handler already buffers requests as Blobs, so carry that value directly.
+{
+  const file = "public/vendor/uv-3.2.10/uv.bundle.js";
+  const source = await readFile(file, "utf8");
+  const patches = [
+    ["async fetch(t,r){let n=new Request(t,r)", 'async fetch(t,r){if(r&&r.body instanceof ReadableStream)r={...r,body:await new Response(r.body).arrayBuffer()};let n=new Request(t,r)'],
+    ["i=n.body,f=new URL(n.url)", "i=r?.body??null,f=new URL(n.url)"],
+    ["i?[i]:[])", "i instanceof ArrayBuffer?[i]:[])"],
+  ];
+  for (const [needle] of patches) if (!source.includes(needle)) throw new Error(`UV client pattern changed: ${needle}`);
+  await writeFile(file, patches.reduce((text, [from, to]) => text.replace(from, to), source));
+  manifest.adaptations.push({ engine: "uv-3.2.10", change: "Carry request bodies from the init before the worker boundary" });
+}
+// Alpha0's built-in transport and the alpha67 controller RPC pass raw streams;
+// buffer both. Plain assignments cover internal objects; defineProperty covers
+// Request instances whose body is a prototype getter.
+const bodyHelper =
+  'async function __ojjyBody(t){const r=t.body;if(r instanceof ReadableStream){const a=await new Response(r).arrayBuffer();' +
+  'try{t.body=a}catch{Object.defineProperty(t,"body",{value:a,writable:!1,configurable:!0})}return a}return r}\n';
+{
+  const file = "public/vendor/sj-2.0.0-alpha/scramjet.all.js";
+  const source = await readFile(file, "utf8");
+  const needle = 'body:k.body,headers:k.requestHeaders,credentials:"omit"';
+  if (!source.includes(needle)) throw new Error("Alpha0 fetch body pattern changed");
+  await writeFile(file, bodyHelper + source.replace(needle, 'body:await __ojjyBody(k),headers:k.requestHeaders,credentials:"omit"'));
+  manifest.adaptations.push({ engine: "sj-2.0.0-alpha", change: "Buffer stream request bodies before the built-in transport" });
+}
+{
+  const file = "public/vendor/sj-2.0.67-alpha.2/controller.sw.js";
+  const source = await readFile(file, "utf8");
+  const needle = "body:e.request.body,cache:e.request.cache";
+  if (!source.includes(needle)) throw new Error("Controller SW body pattern changed");
+  await writeFile(file, bodyHelper + source.replace(needle, "body:await __ojjyBody(e.request),cache:e.request.cache"));
+  manifest.adaptations.push({ engine: "sj-2.0.67-alpha.2", change: "Buffer stream request bodies before the controller RPC" });
+}
 for (const extension of ["js", "mjs"]) {
   const file = `public/vendor/epoxy-transport/index.${extension}`;
   const source = await readFile(file, "utf8");
