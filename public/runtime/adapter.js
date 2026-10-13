@@ -1,4 +1,5 @@
 import { flattenHeaders, validateWisp } from "/shared.js";
+import { installSocketBridge } from "./websocket.js";
 const params = new URLSearchParams(location.search);
 const token = params.get("token");
 const parentOrigin = params.get("parent");
@@ -82,6 +83,12 @@ function canonical() {
   try {
     if (frame?.url) return String(frame.url);
     const actual = website.contentWindow.location.href;
+    if (config.engine === "sj-2.0.2-alpha" && actual.startsWith(location.origin + config.prefix)) {
+      const physical = new URL(actual);
+      const logical = new URL(decodeURIComponent(physical.pathname.slice(config.prefix.length)));
+      if (physical.hash) logical.hash = physical.hash;
+      return logical.href;
+    }
     if (
       config.engine === "sj-2.0.67-alpha.2" && frame &&
       actual.startsWith(location.origin + frame.prefix)
@@ -109,6 +116,35 @@ function report(type = "navigation") {
   lastUrl = url;
   send(type, { url, title });
 }
+async function epoxySockets() {
+  await script("/runtime/vendor/epoxy-modern/index.js");
+  // The UMD bundle publishes the namespace object: the class lives at
+  // EpoxyTransport.EpoxyTransport (with a .default alias on some builds).
+  const SocketTransport = EpoxyTransport.EpoxyTransport ?? EpoxyTransport.default ?? EpoxyTransport;
+  const client = new SocketTransport({ wisp: config.wisp });
+  await timeout(client.init(), "Epoxy socket transport did not initialize.");
+  return {
+    connect(url, protocols, headers, ...callbacks) {
+      // Modern Epoxy iterates header pairs.
+      return client.connect(url, protocols, Object.entries(headers), ...callbacks);
+    },
+  };
+}
+async function libcurlSockets() {
+  const loaded = new Promise((resolve) =>
+    document.addEventListener("libcurl_load", resolve, { once: true })
+  );
+  await script("/runtime/vendor/libcurl/index.js");
+  await timeout(loaded, "Libcurl WebAssembly did not initialize.");
+  const client = new CurlMod.default({ wisp: config.wisp });
+  await timeout(client.init(), "Libcurl socket transport did not initialize.");
+  return {
+    connect(url, protocols, headers, ...callbacks) {
+      // The legacy Libcurl transport takes a plain header object, not pairs.
+      return client.connect(url, protocols, headers, ...callbacks);
+    },
+  };
+}
 async function initialize() {
   if (parentOrigin !== config.parentOrigin || !token) {
     throw new Error("Open this runtime from its configured ojjyProxy website.");
@@ -133,6 +169,32 @@ async function initialize() {
     if (config.engine === "sj-1.1.0") await bareMux();
     await worker();
     frame = controller.createFrame(website);
+    if (config.engine === "sj-2.0.0-alpha") {
+      // Destination WebSockets bypass this release's unfinished embedded socket hook.
+      // Pages still use the built-in Epoxy transport; sockets prefer Libcurl because
+      // modern Epoxy's wasm send queue only drains on incoming relay traffic and stalls
+      // on an idle connection. Epoxy remains the automatic fallback.
+      let transport = null;
+      const failures = [];
+      for (const name of ["libcurl", "epoxy"]) {
+        try {
+          transport = name === "libcurl" ? await libcurlSockets() : await epoxySockets();
+          send("transport-selected", { transport: name });
+          break;
+        } catch (error) {
+          failures.push(`${name}: ${error.message || error}`);
+        }
+      }
+      if (!transport) {
+        throw new Error(`No socket transport could initialize (${failures.join("; ")}).`);
+      }
+      self.__ojjyInstallSocketBridge = (window, client) =>
+        installSocketBridge(window, client, transport);
+      frame.addEventListener(
+        "contextInit",
+        (event) => installSocketBridge(event.window, event.client, transport),
+      );
+    }
   } else if (config.engine === "sj-2.0.67-alpha.2") {
     await script("/runtime/vendor/scramjet.js");
     await script("/runtime/vendor/controller.api.js");

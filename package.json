@@ -17,6 +17,7 @@
     "@mercuryworkshop/wisp-js": "0.4.1",
     "bare-mux": "npm:@mercuryworkshop/bare-mux@2.1.9",
     "epoxy-transport": "npm:@mercuryworkshop/epoxy-transport@2.1.28",
+    "epoxy-modern": "npm:@mercuryworkshop/epoxy-transport@3.0.1",
     "libcurl-transport": "npm:@mercuryworkshop/libcurl-transport@1.5.2",
     "sj-stable": "npm:@mercuryworkshop/scramjet@1.1.0",
     "sj-alpha0": "npm:@mercuryworkshop/scramjet@2.0.0-alpha",

@@ -2,7 +2,7 @@
 self.OjjyAlpha2 = {};
 OjjyAlpha2.create = (cookieJar, sendSetCookie) => {
   const runtime = self.$scramjet;
-  const bare = new BareMux.BareClient();
+  const bare = new BareMux.BareClient(self.OJJY_BARE_PORT);
   const pairs = (headers) =>
     Array.isArray(headers)
       ? headers
@@ -13,7 +13,7 @@ OjjyAlpha2.create = (cookieJar, sendSetCookie) => {
     ready: true,
     async init() {},
     connect(url, protocols, headers, onopen, onmessage, onclose, onerror) {
-      const socket = bare.createWebSocket(url, protocols, Object.fromEntries(headers));
+      const socket = bare.createWebSocket(url, protocols, undefined, Object.fromEntries(headers));
       socket.addEventListener("open", () => onopen(socket.protocol || "", socket.extensions || ""));
       socket.addEventListener("message", (event) => onmessage(event.data));
       socket.addEventListener("close", (event) => onclose(event.code, event.reason || ""));

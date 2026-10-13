@@ -69,17 +69,28 @@
   },
   "adaptations": [
     {
+      "component": "epoxy-transport@2.1.28",
+      "change": "Await asynchronous destination WebSocket sends"
+    },
+    {
       "engine": "sj-2.0.0-alpha",
       "change": "Guard cross-origin singleton probes",
       "count": 4
+    },
+    {
+      "engine": "sj-2.0.0-alpha",
+      "change": "Window WebSocket compatibility bridge via the owned runtime Epoxy transport",
+      "source": "public/runtime/websocket.js"
     }
   ],
   "hashes": {
     "public/vendor/bare-mux/index.js": "80626244b605a12cde14c81ea603ed27908ff80775e6d46d1c1e02912947eefb",
     "public/vendor/bare-mux/index.mjs": "a33e465a17fd574954cb4034d23373bf0dc5f00b68d229a8f83456400fdc9fac",
     "public/vendor/bare-mux/worker.js": "de905101f2845a021e35768ec7c008b5d0979aa5ea52bf41a33df9e40eaa8d8f",
-    "public/vendor/epoxy-transport/index.js": "bae1ca90ea0e8f180c29358c95f6b08f227817ef66c4edea8b1024927305ac1d",
-    "public/vendor/epoxy-transport/index.mjs": "1095264b51ed56ef3cbeaa545b2329bf807dea469a0a85d129ca04787643940a",
+    "public/vendor/epoxy-modern/index.js": "5a0c9d035fa8eed9fa6b70764fad0b0b03eba50545239ef176e1606373e1ac7c",
+    "public/vendor/epoxy-modern/index.mjs": "ee81cc876d151dfdca3d9847a535a3739ea00a5fa35fae7dcb7569d19fcb46dc",
+    "public/vendor/epoxy-transport/index.js": "6f6248a5e397a02a5a52517c14d8ac6b6771221058386f1a656ca82a8b1ecfd3",
+    "public/vendor/epoxy-transport/index.mjs": "088f52a6f3e82696c64bb628f143e934dd996abc791666d4e9014c9aae1c5606",
     "public/vendor/libcurl-transport/index.cjs": "8dd5a1e84f615f6d50746b94cb7b0d1e55cb9c97bc5d213a7d56038acaec77c6",
     "public/vendor/libcurl-transport/index.js": "8dd5a1e84f615f6d50746b94cb7b0d1e55cb9c97bc5d213a7d56038acaec77c6",
     "public/vendor/libcurl-transport/index.mjs": "5d009834e20277d898b7047ee5858f4d0e2ab71d4a7f3edcd428ac840af05503",
@@ -96,7 +107,7 @@
     "public/vendor/sj-2.0.0-alpha/b4f3c1c0e4a92823.wasm": "72e0e76e6d5aade840b47a6ef95a238fb135242f921d89f8622fe6df46b1ec2b",
     "public/vendor/sj-2.0.0-alpha/d864ec42994880cb.wasm": "55790582692a3c60d7d8ec1cf219a743c19521a9f1f498c8fe2ce90a7d3bf664",
     "public/vendor/sj-2.0.0-alpha/dbbe994629c3010c.wasm": "f563c53bfb56a0ea1f458609c787c2399e14756fe03408c608677afc752b98b1",
-    "public/vendor/sj-2.0.0-alpha/scramjet.all.js": "14f3766703ab740abc7f35741a387b5be1590f550a7e872a541c0d07dbc6c1a0",
+    "public/vendor/sj-2.0.0-alpha/scramjet.all.js": "07ea6768e0b1b10ff00514edbb4074033de367169c09d6a01b59a8c8ac9498f8",
     "public/vendor/sj-2.0.0-alpha/scramjet.bundle.js": "a8dc749c5fa0c5e5ae1bc6db8c46f73eff484247d5577e5a12fadf8241c6a051",
     "public/vendor/sj-2.0.0-alpha/scramjet.sync.js": "776e61fe075e231c105ca8f9540cceb631b94f6e565ba5d8470545151e0ba804",
     "public/vendor/sj-2.0.0-alpha/scramjet.wasm.wasm": "d286d8ac714a8bfeade65a138917d11798372df88176f19811200cb4ca466bdc",

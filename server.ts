@@ -129,14 +129,17 @@ export async function handle(request: Request): Promise<Response> {
         const relative = pathname.slice("/runtime/vendor/".length);
         const folder = relative.startsWith("baremux/")
           ? "bare-mux"
+          : relative.startsWith("epoxy-modern/")
+          ? "epoxy-modern"
           : relative.startsWith("epoxy/")
           ? "epoxy-transport"
           : relative.startsWith("libcurl/")
           ? "libcurl-transport"
           : engine;
-        const leaf = ["bare-mux", "epoxy-transport", "libcurl-transport"].includes(folder)
-          ? relative.slice(relative.indexOf("/") + 1)
-          : relative;
+        const leaf =
+          ["bare-mux", "epoxy-transport", "epoxy-modern", "libcurl-transport"].includes(folder)
+            ? relative.slice(relative.indexOf("/") + 1)
+            : relative;
         pathname = `/vendor/${folder}/${leaf}`;
       }
     } else if (pathname === "/") pathname = engine ? "/runtime/index.html" : "/index.html";

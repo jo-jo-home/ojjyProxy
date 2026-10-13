@@ -44,9 +44,20 @@ for (const [engine, deps] of Object.entries(packages)) {
     manifest.engines[engine].push(await copyDist(dep, `public/vendor/${engine}`));
   }
 }
-for (const dep of ["bare-mux", "epoxy-transport", "libcurl-transport"]) {
+for (const dep of ["bare-mux", "epoxy-transport", "epoxy-modern", "libcurl-transport"]) {
   await copyDist(dep, `public/vendor/${dep}`);
 }
+for (const extension of ["js", "mjs"]) {
+  const file = `public/vendor/epoxy-transport/index.${extension}`;
+  const source = await readFile(file, "utf8");
+  const needle = "(await ws).send(data);";
+  if (!source.includes(needle)) throw new Error("Epoxy socket send pattern changed");
+  await writeFile(file, source.replace(needle, "await (await ws).send(data);"));
+}
+manifest.adaptations.push({
+  component: "epoxy-transport@2.1.28",
+  change: "Await asynchronous destination WebSocket sends",
+});
 const alphaPath = "public/vendor/sj-2.0.0-alpha/scramjet.all.js";
 let alpha = await readFile(alphaPath, "utf8");
 // Alpha0 assumes accessible parent/top/opener. Keep that release's runtime, but
@@ -65,11 +76,22 @@ if (!guards) {
 alpha =
   "function __ojjyHasSymbol(target,symbol){try{return target!=null&&symbol in target}catch{return false}}\n" +
   alpha;
+const clientHook = "A.hook(),h&&new D.ScramjetServiceWorkerRuntime(A).hook();";
+if (!alpha.includes(clientHook)) throw new Error("Alpha0 client bootstrap pattern changed");
+alpha = alpha.replace(
+  clientHook,
+  '(()=>{const owner=globalThis.parent;A.hook();if(owner&&owner!==globalThis&&typeof owner.__ojjyInstallSocketBridge==="function")owner.__ojjyInstallSocketBridge(A.global,A)})(),h&&new D.ScramjetServiceWorkerRuntime(A).hook();',
+);
 await writeFile(alphaPath, alpha);
 manifest.adaptations.push({
   engine: "sj-2.0.0-alpha",
   change: "Guard cross-origin singleton probes",
   count: guards,
+});
+manifest.adaptations.push({
+  engine: "sj-2.0.0-alpha",
+  change: "Window WebSocket compatibility bridge via the owned runtime Epoxy transport",
+  source: "public/runtime/websocket.js",
 });
 await cp("node_modules/@mercuryworkshop/wisp-js/LICENSE", "public/notices/wisp-LICENSE");
 await cp("node_modules/@mercuryworkshop/wisp-js/LICENSE", "LICENSE");

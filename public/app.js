@@ -200,6 +200,7 @@ function errorTab(tab, message) {
   tab.state = "error";
   tab.error = message;
   log("error", `${tab.engine}: ${message}`);
+  if (settings.notifications) notify(`${label(tab.engine)}: ${message}`);
   if (tab.id === activeId) selectTab(tab.id);
   else renderTabs();
 }
@@ -649,6 +650,7 @@ $("home-form").addEventListener("submit", (event) => {
 });
 $("address-form").addEventListener("submit", (event) => {
   event.preventDefault();
+  $('address').blur();
   navigate($("address").value);
 });
 $("nav-home").addEventListener("click", () => {

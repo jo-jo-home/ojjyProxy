@@ -96,9 +96,20 @@ async function route(event) {
   await engine.loadConfig();
   return engine.route(event) ? engine.fetch(event) : fetch(event.request);
 }
+function embeddingResponse(event, response) {
+  const pathname = new URL(event.request.url).pathname;
+  if (!pathname.startsWith(config.prefix) || !['document', 'iframe'].includes(event.request.destination)) return response;
+  // Match the physical ancestor policy: older engine responses may emit
+  // credentialless, which Firefox cannot embed below our require-corp shell.
+  const headers = new Headers(response.headers);
+  headers.set('cross-origin-embedder-policy', 'require-corp');
+  headers.set('cross-origin-resource-policy', 'cross-origin');
+  headers.set('cross-origin-opener-policy', 'same-origin');
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
 self.addEventListener("fetch", (event) =>
   event.respondWith(
-    route(event).catch((error) => {
+    route(event).then((response) => embeddingResponse(event, response)).catch((error) => {
       console.error(error);
       // Error text is not HTML: remote URLs/errors cannot inject markup into this page.
       return new Response(`ojjyProxy could not load this request.\n\n${error.message || error}`, {

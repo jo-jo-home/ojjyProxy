@@ -1553,7 +1553,7 @@ var EpoxyTransport = class {
     return [
       async (data) => {
         if (data instanceof Blob) data = await data.arrayBuffer();
-        (await ws).send(data);
+        await (await ws).send(data);
       },
       async (code, reason) => {
         (await ws).close(code, reason || "");
