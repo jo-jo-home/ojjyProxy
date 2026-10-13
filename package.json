@@ -11,6 +11,7 @@
     "relay": "node relay/server.mjs",
     "test": "node --test tests/*.test.mjs",
     "test:browser": "playwright test",
+    "test:live": "node scripts/live-check.mjs",
     "check": "deno check server.ts && deno test --allow-read=public --allow-env=RUNTIME_ENGINE,RUNTIME_ORIGINS,WISP_URL,PUBLIC_APP_ORIGIN,SINGLE_RUNTIME,SITE_PASSWORD tests/server.test.ts && npm test"
   },
   "dependencies": {

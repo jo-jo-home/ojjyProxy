@@ -29,7 +29,12 @@ The [extensive blueprint](reports/ojjyProxy%20multiversion%20project%20blueprint
 
 **Boundary:** local verification is complete for those cases. Production Deno, DNS and the public owned relay still need configuration. Complex sites, other browsers, workers and longer sessions belong to subsequent gates.
 
-## Phase 2 — your owned relay and live Deno website · next
+## Phase 2 — your owned relay and live Deno website · completed
+
+**Status (2026-10-13):** live in production — the shell and five runtime origins run on Deno, and
+the owned Wisp relay runs on EC2 behind a CloudFront `wss://` endpoint with all six origins
+allowlisted. A server-side password gate (`SITE_PASSWORD`, rate-limited) protects the shell, and
+Settings can switch between the owned relay and a second, manually-selected backup relay.
 
 1. Deploy `relay/server.mjs` on your chosen forwarding-capable host.
 2. Assign its real hostname and HTTPS/WSS certificate.
@@ -77,8 +82,13 @@ inside the address capsule); every icon is a clean consistent vector including t
 buttons, dialog close, and star toggles; closed tabs reopen from a strip button or Alt+Shift+T;
 "recent" tracks real last-opened order; a shortcuts reference dialog lists the four reliable
 bindings; the address capsule highlights during navigation; cookie persistence across reload and
-simultaneous stable-plus-Ultraviolet tabs are covered by the matrix. Remaining: tab
-reorder/pin/duplicate, bookmark folders, and transport capability surfacing.
+simultaneous stable-plus-Ultraviolet tabs are covered by the matrix. Also verified: tab drag
+reorder, duplicate and middle-click close with an overflow menu, per-tab engine labels, bookmark
+folders, address-bar suggestions, history day-clearing with engine chips, a live connection status
+panel, stalled-page notices, a backup-relay retry action, warm-up prefetch with cached vendor
+assets, the PWA manifest, and the appearance system (Lunar theme, sidebar layout, custom colors,
+fonts, cursors, panic exit, entrance animations). Remaining: tab pinning and transport capability
+surfacing.
 
 **Completion check:** bookmark/tab operations persist correctly; keyboard and touch journeys work; controls remain reachable with an onscreen keyboard; appearance settings never overstate privacy.
 

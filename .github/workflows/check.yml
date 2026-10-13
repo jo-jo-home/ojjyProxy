@@ -23,6 +23,25 @@ jobs:
       - run: git diff --exit-code -- public/vendor public/notices public/asset-manifest.json LICENSE
       - run: npx playwright install --with-deps chromium
       - run: npm run test:browser
+  compat:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [firefox, webkit]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: npm ci
+      - run: npm run build
+      - run: npx playwright install --with-deps ${{ matrix.browser }}
+      - run: npm run test:browser -- --browser=${{ matrix.browser }}
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

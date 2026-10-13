@@ -1,4 +1,4 @@
-import { handle } from "../server.ts";
+import { clearAuthAttempts, handle } from "../server.ts";
 function equal(actual: unknown, expected: unknown) {
   if (actual !== expected) {
     throw new Error(`Expected ${JSON.stringify(expected)}, received ${JSON.stringify(actual)}`);
@@ -92,6 +92,36 @@ Deno.test("optional site password gates the shell until the correct password unl
   } finally {
     if (previous === undefined) Deno.env.delete("SITE_PASSWORD");
     else Deno.env.set("SITE_PASSWORD", previous);
+  }
+});
+Deno.test("runtime vendor assets cache at the browser while dynamic config stays fresh", async () => {
+  const vendor = await handle(new Request("http://localhost:8100/runtime/vendor/scramjet.all.js"));
+  equal(vendor.status, 200);
+  equal(vendor.headers.get("cache-control"), "public, max-age=3600");
+  const config = await handle(new Request("http://localhost:8100/runtime/config.js"));
+  equal(config.headers.get("cache-control"), "no-store");
+  const home = await handle(new Request("http://localhost:8000/"));
+  equal(home.headers.get("cache-control"), "no-store");
+});
+Deno.test("repeated wrong passwords are rate limited", async () => {
+  clearAuthAttempts();
+  const previous = Deno.env.get("SITE_PASSWORD");
+  try {
+    Deno.env.set("SITE_PASSWORD", "ojjythebest");
+    const post = (body: string) =>
+      handle(new Request("https://proxy.example.com/auth", {
+        method: "POST",
+        body,
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+      }));
+    let status = 0;
+    for (let i = 0; i < 11; i++) status = (await post("password=wrong")).status;
+    equal(status, 429);
+    equal((await post("password=ojjythebest")).status, 429);
+  } finally {
+    if (previous === undefined) Deno.env.delete("SITE_PASSWORD");
+    else Deno.env.set("SITE_PASSWORD", previous);
+    clearAuthAttempts();
   }
 });
 Deno.test("compact mode serves the shell and one runtime on a single origin", async () => {

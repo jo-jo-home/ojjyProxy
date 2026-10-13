@@ -7,6 +7,7 @@ const MIME: Record<string, string> = {
   mjs: "text/javascript; charset=utf-8",
   css: "text/css; charset=utf-8",
   json: "application/json; charset=utf-8",
+  webmanifest: "application/manifest+json",
   wasm: "application/wasm",
   svg: "image/svg+xml",
   ico: "image/x-icon",
@@ -64,12 +65,17 @@ function runtimeConfig(url: URL, engine: string) {
       (isLocal(url.hostname) ? `${url.protocol}//${url.hostname}:8000` : ""),
   };
 }
-function response(body: BodyInit | null, status = 200, contentType = "text/plain; charset=utf-8") {
+function response(
+  body: BodyInit | null,
+  status = 200,
+  contentType = "text/plain; charset=utf-8",
+  cacheControl = "no-store",
+) {
   return new Response(body, {
     status,
     headers: {
       "content-type": contentType,
-      "cache-control": "no-store",
+      "cache-control": cacheControl,
       "x-content-type-options": "nosniff",
       "referrer-policy": "no-referrer",
       "cross-origin-opener-policy": "same-origin",
@@ -82,6 +88,27 @@ function response(body: BodyInit | null, status = 200, contentType = "text/plain
 // not set it: they load inside cross-origin iframes that never receive this
 // cookie, and they already reject foreign parents on their own.
 const AUTH_COOKIE = "ojjyproxy-key";
+const AUTH_WINDOW = 15 * 60_000;
+const AUTH_MAX = 10;
+// Best-effort per-isolate brute-force brake for the password gate. The client
+// IP comes from Deno Deploy's x-forwarded-for; local runs share one bucket.
+const authAttempts = new Map<string, { count: number; reset: number }>();
+export function clearAuthAttempts() {
+  authAttempts.clear();
+}
+function authKey(request: Request) {
+  return request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+}
+function authLimited(key: string) {
+  const entry = authAttempts.get(key);
+  return !!entry && entry.count >= AUTH_MAX && Date.now() <= entry.reset;
+}
+function authFail(key: string) {
+  const now = Date.now();
+  const entry = authAttempts.get(key);
+  if (!entry || now > entry.reset) authAttempts.set(key, { count: 1, reset: now + AUTH_WINDOW });
+  else entry.count++;
+}
 async function gateToken() {
   const secret = environment("SITE_PASSWORD");
   if (!secret) return "";
@@ -92,12 +119,16 @@ function hasCookie(request: Request, value: string) {
   return (request.headers.get("cookie") || "").split(";")
     .some((part) => part.trim() === `${AUTH_COOKIE}=${value}`);
 }
-function loginPage(again = false) {
+function loginPage(again = false, limited = false) {
   return response(
     `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ojjyProxy</title><style>body{margin:0;min-height:100dvh;display:grid;place-content:center;background:#0a1628;color:#c8d6e5;font-family:'Segoe UI',system-ui,sans-serif}main{width:min(340px,calc(100% - 40px));border:1px solid #1e3a5f;background:#111d2e;border-radius:16px;padding:34px}h1{font-weight:300;letter-spacing:.05em;color:#e2e8f0;margin:0 0 6px;font-size:1.7rem}p{color:#90a3b9;font-size:13px;margin:0 0 20px}#again{color:#e05555}input{width:100%;box-sizing:border-box;border:1px solid #1e3a5f;background:#0a1628;color:#e2e8f0;border-radius:10px;padding:12px 13px;font-size:16px}button{width:100%;margin-top:14px;border:1px solid #2e6bbd;background:#2e6bbd;color:#fff;border-radius:10px;padding:12px;font-size:14px;cursor:pointer}</style></head><body><main><h1>ojjyProxy</h1><p>enter the site password to continue</p>${
-      again ? '<p id="again">that password was not right. try again.</p>' : ""
+      limited
+        ? '<p id="again">too many attempts. wait a few minutes and try again.</p>'
+        : again
+        ? '<p id="again">that password was not right. try again.</p>'
+        : ""
     }<form method="post" action="/auth"><input type="password" name="password" autocomplete="current-password" autofocus required><button type="submit">continue</button></form></main></body></html>`,
-    again ? 401 : 200,
+    limited ? 429 : again ? 401 : 200,
     MIME.html,
   );
 }
@@ -107,8 +138,11 @@ export async function handle(request: Request): Promise<Response> {
   if (url.pathname === "/auth") {
     if (!token) return response("This website has no password configured.", 404);
     if (request.method !== "POST") return response("Method not allowed", 405);
+    const key = authKey(request);
+    if (authLimited(key)) return loginPage(false, true);
     const submitted = new URLSearchParams(await request.text()).get("password");
     if (submitted === environment("SITE_PASSWORD")) {
+      authAttempts.delete(key);
       return new Response(null, {
         status: 303,
         headers: {
@@ -120,6 +154,7 @@ export async function handle(request: Request): Promise<Response> {
         },
       });
     }
+    authFail(key);
     return loginPage(true);
   }
   if (!["GET", "HEAD"].includes(request.method)) return response("Method not allowed", 405);
@@ -169,6 +204,9 @@ export async function handle(request: Request): Promise<Response> {
     if (pathname.includes("\0") || pathname.split("/").includes("..") || pathname.includes("\\")) {
       return response("Bad path", 400);
     }
+    // Pinned engine bundles never change between deploys; caching them at the
+    // browser turns repeat runtime startups from megabytes into cache hits.
+    const vendorAsset = pathname.startsWith("/runtime/vendor/");
     if (pathname.startsWith("/runtime/")) {
       if (!engine) return response("This origin is the outer shell, not an engine runtime", 503);
       if (pathname.startsWith("/runtime/network/")) {
@@ -208,7 +246,12 @@ export async function handle(request: Request): Promise<Response> {
       throw error;
     }
     const type = MIME[pathname.split(".").pop() || ""] || "application/octet-stream";
-    return response(request.method === "HEAD" ? null : data as unknown as BodyInit, 200, type);
+    return response(
+      request.method === "HEAD" ? null : data as unknown as BodyInit,
+      200,
+      type,
+      vendorAsset ? "public, max-age=3600" : "no-store",
+    );
   } catch (error) {
     console.error(error);
     return response("Server configuration or request error", 500);

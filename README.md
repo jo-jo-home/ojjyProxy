@@ -58,6 +58,13 @@ compatibility, browser features, advanced tools and release polish.
 - Five engine/version choices, five search providers, and your configurable owned Wisp endpoint with
   one-click **use default** / **use official backup** switching.
 - Optional site password gate: set `SITE_PASSWORD` on the outer app to serve a password page first.
+- Appearance controls: hub-blue, Midnight, Ocean, Lunar (purple) and fully custom color themes;
+  top-tabs or Lunar-style sidebar layout; eight interface fonts; five cursor styles including a
+  custom image; smooth entrance animations that respect reduced-motion and performance mode.
+- Panic exit: a recorded non-typing key or the ✕ strip button instantly replaces the site with a
+  cover page of your choice.
+- Address-bar suggestions, bookmark folders, per-engine history chips, day clearing, a live
+  connection status panel, stalled-page notices, middle-click tab close and a tab overflow menu.
 - Bookmark creation, editing, favorites, shortcuts, import/export, local history, local suggestions.
 - Theme selection, reduced-motion/performance mode, browser-tab title/icon customization,
   fullscreen.
@@ -196,6 +203,30 @@ manual, and traffic through the backup is visible to that operator.
 For development, `npm run relay` starts the relay alone on `127.0.0.1:9000`. `WISP_TEST_MODE=1`
 permits the loopback fixture only in nonproduction tests bound to `127.0.0.1`; it is never enabled
 for production.
+
+## Keep it running
+
+The relay lives on your own server, so these small habits keep the whole site alive:
+
+1. **Updating the frontend** — pushing to `main` redeploys the Deno apps automatically.
+2. **Updating the relay (EC2)** — pull and rebuild in one step:
+   ```sh
+   ssh <your-ec2-host> /opt/ojjyproxy/update-relay.sh
+   ```
+   The script recreates the container with the origins from `/opt/ojjyproxy/relay.env`.
+3. **DuckDNS keepalive** — a five-minute cron at `/opt/ojjyproxy/duckdns.sh` keeps the hostname
+   pointed at EC2 once `/opt/ojjyproxy/duckdns.token` contains your DuckDNS token. Preferably
+   assign an Elastic IP so the address never changes at all.
+4. **Origin lock (recommended)** — add a custom origin header (`X-Ojjy-Origin-Secret`) to the
+   CloudFront distribution, then require it from Caddy so only your distribution can reach EC2.
+5. **Before your hosting credits expire** — move the relay (the same Docker image, or compact mode
+   on one VPS) to a host you pay for, or the site keeps serving but stops browsing.
+
+Optional live production check after any deployment change:
+
+```sh
+LIVE_SITE_PASSWORD=your-site-password npm run test:live
+```
 
 ## Verify
 

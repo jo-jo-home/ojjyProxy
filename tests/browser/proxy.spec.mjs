@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import http from "node:http";
 import { WebSocketServer } from "ws";
+import { spawn } from "node:child_process";
 import { BACKUP_WISP, ENGINES } from "../../public/shared.js";
 let fixture, sockets, socketHost;
 test.beforeAll(async () => {
@@ -124,10 +125,33 @@ test("blue home, full selector, bookmarks and responsive settings", async ({ pag
   await page.getByRole("button", { name: /add a shortcut/ }).click();
   await page.locator("#bookmark-form [name=name]").fill("My fixture");
   await page.locator("#bookmark-form [name=url]").fill("http://localhost:8899/");
+  await page.locator("#bookmark-form [name=folder]").fill("School");
   await page.getByRole("button", { name: "save bookmark", exact: true }).click();
   await expect(page.locator("#shortcut-grid")).toContainText("My fixture");
   await page.reload();
   await expect(page.locator("#shortcut-grid")).toContainText("My fixture");
+  // Bookmark folders group the library without touching the home grid.
+  await page.getByRole("button", { name: "bookmarks", exact: true }).click();
+  await expect(page.locator("#library-content .library-day")).toHaveText("School");
+  await page.locator("#library [data-close]").first().click();
+  // Address-bar suggestions come from saved bookmarks; middle-click closes a tab.
+  await page.getByRole("button", { name: /My fixture/ }).click();
+  await expect(
+    page.frameLocator(".runtime-frame:not([hidden])").frameLocator("#website").getByRole(
+      "heading",
+      { name: "owned relay works" },
+    ),
+  ).toBeVisible({ timeout: 25000 });
+  await page.locator("#address").fill("my f");
+  await expect(page.locator("#address-suggestions")).toBeVisible();
+  await expect(page.locator("#address-suggestions")).toContainText("My fixture");
+  await page.locator("#address").press("ArrowDown");
+  await page.locator("#address").press("Enter");
+  await expect(page.locator("#address")).toHaveValue("http://localhost:8899/");
+  await page.locator("#new-tab").click();
+  await expect(page.locator("#tabs .tab")).toHaveCount(2);
+  await page.locator("#tabs .tab").first().click({ button: "middle" });
+  await expect(page.locator("#tabs .tab")).toHaveCount(1);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "customize", exact: true }).click();
   await expect(page.getByRole("button", { name: "save settings", exact: true })).toBeVisible();
@@ -139,6 +163,17 @@ test("blue home, full selector, bookmarks and responsive settings", async ({ pag
   await page.screenshot({ path: "test-results/settings-mobile.png" });
   const width = await page.evaluate(() => document.documentElement.scrollWidth);
   expect(width).toBeLessThanOrEqual(390);
+  // Panic exit: recorded key plus cover site leave immediately, and the cover
+  // site is configurable so this test stays on the local fixture. The settings
+  // dialog is still open from the responsive check above, so use it directly.
+  await page.locator("#settings-form [name=panicKey]").click();
+  await page.keyboard.press("F9");
+  await expect(page.locator("#settings-form [name=panicKey]")).toHaveValue("F9");
+  await page.locator("#settings-form [name=panicUrl]").fill("http://localhost:8899/next");
+  await page.getByRole("button", { name: "save settings", exact: true }).click();
+  await page.keyboard.press("F9");
+  await expect(page).toHaveURL(/localhost:8899\/next/);
+  await expect(page.getByRole("heading", { name: "next fixture page" })).toBeVisible();
 });
 for (const engine of ENGINES) {
   test(`${engine.id} loads through the owned Wisp relay`, async ({ page }) => {
@@ -408,3 +443,46 @@ if (process.env.LIVE_PROXY_TESTS === "1") {
     });
   }
 }
+test("site password gate serves a login page and unlocks with the right password", async ({ page }) => {
+  // A second server instance with SITE_PASSWORD set exercises the real login
+  // flow end to end, without affecting the shared dev stack on port 8000.
+  const child = spawn(
+    "deno",
+    ["run", "--allow-net", "--allow-read=public", "--allow-env", "server.ts"],
+    {
+      env: {
+        ...process.env,
+        PORT: "8600",
+        HOST: "127.0.0.1",
+        SITE_PASSWORD: "e2e-gate-password",
+      },
+      stdio: "ignore",
+    },
+  );
+  try {
+    let ready = false;
+    for (let attempt = 0; attempt < 80 && !ready; attempt++) {
+      try {
+        const probe = await fetch("http://127.0.0.1:8600/");
+        if (probe.ok) ready = true;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+    }
+    expect(ready).toBe(true);
+    await page.goto("http://127.0.0.1:8600/");
+    await expect(page.locator('input[name="password"]')).toBeVisible();
+    await expect(page.locator("#engine-select")).toHaveCount(0);
+    await page.locator('input[name="password"]').fill("not-the-password");
+    await page.locator("button[type=submit]").click();
+    await expect(page.locator("#again")).toBeVisible();
+    await page.locator('input[name="password"]').fill("e2e-gate-password");
+    await page.locator("button[type=submit]").click();
+    await expect(page.getByRole("heading", { name: "ojjyProxy", exact: true })).toBeVisible();
+    // The cookie keeps the shell unlocked across reloads.
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "ojjyProxy", exact: true })).toBeVisible();
+  } finally {
+    child.kill("SIGTERM");
+  }
+});

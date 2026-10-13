@@ -49,3 +49,9 @@ test("transport header normalization preserves repeated Set-Cookie", () => {
 test("the official backup relay is a valid secure endpoint", () => {
   assert.equal(validateWisp(BACKUP_WISP, true), BACKUP_WISP);
 });
+test("every engine declares warm-up assets", () => {
+  assert.ok(
+    ENGINES.every((engine) => Array.isArray(engine.warm) && engine.warm.length > 0 &&
+      engine.warm.every((file) => file.startsWith("/runtime/vendor/"))),
+  );
+});

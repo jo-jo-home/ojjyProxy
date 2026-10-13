@@ -1,4 +1,4 @@
-# Build ojjyProxy Into One Coherent Browser
+if you do npm install on the basic example it should auto get @mercuryworkshop/wisp-js# Build ojjyProxy Into One Coherent Browser
 
 ## Executive recommendation
 
