@@ -181,8 +181,73 @@ function renderTabs() {
     close.title = "Close tab";
     close.innerHTML = '<svg aria-hidden="true"><use href="#i-x"/></svg>';
     group.append(select, close);
+    attachTabDrag(group, tab.id);
+    group.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      showTabMenu(event, tab.id);
+    });
     area.append(group);
   }
+}
+function attachTabDrag(group, id) {
+  // Desktop tab reordering. A short press still selects; only a real drag moves.
+  group.draggable = true;
+  group.addEventListener("dragstart", (event) => {
+    dragId = id;
+    event.dataTransfer.effectAllowed = "move";
+    group.classList.add("dragging");
+  });
+  group.addEventListener("dragover", (event) => {
+    if (!dragId || dragId === id) return;
+    event.preventDefault();
+    group.classList.add("drag-over");
+  });
+  group.addEventListener("dragleave", () => group.classList.remove("drag-over"));
+  group.addEventListener("drop", (event) => {
+    event.preventDefault();
+    group.classList.remove("drag-over");
+    if (dragId && dragId !== id) reorderTab(dragId, id);
+    dragId = null;
+  });
+  group.addEventListener("dragend", () => {
+    group.classList.remove("dragging", "drag-over");
+    dragId = null;
+  });
+}
+let dragId = null;
+function reorderTab(fromId, beforeId) {
+  const from = tabs.findIndex((item) => item.id === fromId);
+  const before = tabs.findIndex((item) => item.id === beforeId);
+  if (from < 0 || before < 0 || from === before) return;
+  const [moved] = tabs.splice(from, 1);
+  tabs.splice(before, 0, moved);
+  renderTabs();
+  persist();
+}
+function duplicateTab(id) {
+  const source = tabs.find((item) => item.id === id);
+  if (!source?.url) return;
+  const opened = newTab("", source.engine);
+  if (opened) navigate(source.url, opened);
+}
+function showTabMenu(event, id) {
+  const menu = $("context-menu");
+  menu.dataset.tabId = id;
+  menu.hidden = false;
+  const spacing = 8;
+  const width = 180;
+  const left = Math.min(event.clientX, window.innerWidth - width - spacing);
+  menu.style.left = `${left}px`;
+  menu.style.top = `${Math.min(event.clientY, window.innerHeight - 150)}px`;
+}
+function hideTabMenu() {
+  $("context-menu").hidden = true;
+}
+function menuAction(handler) {
+  return () => {
+    hideTabMenu();
+    handler($("context-menu").dataset.tabId);
+  };
 }
 function destroyRuntime(tab) {
   clearTimeout(tab.timer);
@@ -683,6 +748,18 @@ for (
 ) $(id).addEventListener("click", openSettings);
 $("new-tab").addEventListener("click", () => newTab());
 $("reopen-tab").addEventListener("click", reopenTab);
+$("cm-duplicate").addEventListener("click", menuAction(duplicateTab));
+$("cm-reopen").addEventListener("click", menuAction(() => reopenTab()));
+$("cm-close").addEventListener("click", menuAction(closeTab));
+document.addEventListener("click", (event) => {
+  if (!event.target.closest("#context-menu")) hideTabMenu();
+});
+document.addEventListener("contextmenu", (event) => {
+  if (!event.target.closest(".tab")) hideTabMenu();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !$("context-menu").hidden) hideTabMenu();
+});
 $("fullscreen").addEventListener("click", async () => {
   try {
     if (document.fullscreenElement) await document.exitFullscreen();

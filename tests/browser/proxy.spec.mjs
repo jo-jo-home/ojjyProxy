@@ -341,6 +341,42 @@ test("two engines keep live tabs side by side", async ({ page }) => {
   await expect(frame().locator("body")).toHaveAttribute("data-cookies", /clientcookie=one/);
   await expect(page.locator("#address")).toHaveValue("http://localhost:8899/");
 });
+test("tabs reorder by drag and duplicate from the tab menu", async ({ page }) => {
+  await page.goto("/");
+  const open = async (target) => {
+    await page.locator("#new-tab").click();
+    await page.locator("#home-input").fill(target);
+    await page.locator("#home-form").evaluate((form) => form.requestSubmit());
+  };
+  await open("http://localhost:8899/");
+  const first = page.frameLocator(".runtime-frame:not([hidden])").frameLocator("#website");
+  await expect(first.getByRole("heading", { name: "owned relay works" })).toBeVisible({
+    timeout: 20000,
+  });
+  await open("http://localhost:8899/next");
+  const second = page.frameLocator(".runtime-frame:not([hidden])").frameLocator("#website");
+  await expect(second.getByRole("heading", { name: "next fixture page" })).toBeVisible({
+    timeout: 20000,
+  });
+  await page.getByRole("button", { name: "Close new tab" }).click();
+  await expect(page.locator("#tabs .tab")).toHaveCount(2);
+  // Drag the second tab onto the first: it lands before it.
+  await page.locator("#tabs .tab").nth(1).dragTo(page.locator("#tabs .tab").nth(0));
+  await page.locator("#tabs .tab").first().click();
+  await expect(page.locator("#address")).toHaveValue("http://localhost:8899/next");
+  // The right-click menu duplicates the tab and activates the copy.
+  await page.locator("#tabs .tab").first().click({ button: "right" });
+  await page.screenshot({ path: "test-results/tab-menu.png", animations: "disabled" });
+  await page.locator("#cm-duplicate").click();
+  await expect(page.locator("#tabs .tab")).toHaveCount(3);
+  await expect(page.locator("#address")).toHaveValue("http://localhost:8899/next");
+  await expect(
+    page.frameLocator(".runtime-frame:not([hidden])").frameLocator("#website").getByRole(
+      "heading",
+      { name: "next fixture page" },
+    ),
+  ).toBeVisible({ timeout: 20000 });
+});
 if (process.env.LIVE_PROXY_TESTS === "1") {
   for (const id of ["sj-1.1.0", "sj-2.0.67-alpha.2"]) {
     test(`${id} HTTPS destination through owned Wisp`, async ({ page }) => {
