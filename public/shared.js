@@ -50,6 +50,7 @@ export function validateWisp(value, secure = false) {
   }
   return url.href;
 }
-// Manually-switchable backup relay operated by another site. Traffic through it
-// is visible to that operator; switching is always an explicit user action.
-export const BACKUP_WISP = "wss://dhf5wz2rpzatr.cloudfront.net/wisr/";
+// Manually-switchable backup relay: ojjyProxy's own CloudFront endpoint. The
+// website's default endpoint comes from WISP_URL and may be another site's
+// relay; switching between the two is always an explicit user action.
+export const BACKUP_WISP = "wss://d11zfagyzg18az.cloudfront.net/wisp/";

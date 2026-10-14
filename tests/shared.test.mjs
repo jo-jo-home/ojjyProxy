@@ -46,7 +46,7 @@ test("transport header normalization preserves repeated Set-Cookie", () => {
     [["set-cookie", "one=1"], ["set-cookie", "two=2"], ["location", "https://example.com/"]],
   );
 });
-test("the official backup relay is a valid secure endpoint", () => {
+test("the backup relay is a valid secure endpoint", () => {
   assert.equal(validateWisp(BACKUP_WISP, true), BACKUP_WISP);
 });
 test("every engine declares warm-up assets", () => {

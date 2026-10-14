@@ -117,7 +117,7 @@ test("blue home, full selector, bookmarks and responsive settings", async ({ pag
   await expect(page.locator("#engine-select")).toHaveValue("sj-1.1.0");
   await expect(page.locator("#engine-select option")).toHaveCount(5);
   // The quick relay buttons fill the form without saving.
-  await page.getByRole("button", { name: "use official backup" }).click();
+  await page.getByRole("button", { name: "use backup relay" }).click();
   await expect(page.locator("#settings-form [name=wisp]")).toHaveValue(BACKUP_WISP);
   await page.getByRole("button", { name: "use default" }).click();
   await expect(page.locator("#settings-form [name=wisp]")).toHaveValue("ws://localhost:9000/wisp/");

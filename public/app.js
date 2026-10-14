@@ -1165,7 +1165,7 @@ $("error-backup").addEventListener("click", () => {
   destroyRuntime(tab);
   tab.error = "";
   navigate(tab.url, tab);
-  notify("Switched to the official backup relay and retried.");
+  notify("Switched to the backup relay and retried.");
 });
 $("test-relay").addEventListener("click", testRelay);
 $("use-default-wisp").addEventListener("click", () => {
@@ -1178,7 +1178,7 @@ $("use-default-wisp").addEventListener("click", () => {
 });
 $("use-backup-wisp").addEventListener("click", () => {
   $("settings-form").elements.wisp.value = BACKUP_WISP;
-  $("settings-message").textContent = "Official backup endpoint filled in. Save settings to apply.";
+  $("settings-message").textContent = "Backup relay filled in. Save settings to apply.";
 });
 $("library-filter").addEventListener("input", renderLibrary);
 $("library-add").addEventListener("click", () => editBookmark());

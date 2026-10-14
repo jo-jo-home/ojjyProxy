@@ -55,8 +55,8 @@ compatibility, browser features, advanced tools and release polish.
 - Exact default hub palette: `#0a1628`, `#111d2e`, `#162a42`, `#1e3a5f`, `#2e6bbd`.
 - App-managed tabs, lazy session restoration, real destination addresses, back/forward/reload.
 - Desktop floating pill controls, optional docked controls, responsive mobile layout and settings.
-- Five engine/version choices, five search providers, and your configurable owned Wisp endpoint with
-  one-click **use default** / **use official backup** switching.
+- Five engine/version choices, five search providers, and your configurable relay endpoint with
+  one-click **use default** / **use backup relay** switching.
 - Optional site password gate: set `SITE_PASSWORD` on the outer app to serve a password page first.
 - Appearance controls: hub-blue, Midnight, Ocean, Lunar (purple) and fully custom color themes;
   top-tabs or Lunar-style sidebar layout; eight interface fonts; five cursor styles including a
@@ -196,9 +196,10 @@ private/loopback destinations by default, and uses Wisp’s total per-connection
 checking is not user authentication. The 0.4.1 per-host stream limiter is disabled because its
 upstream implementation iterates a non-iterable object.
 
-Settings can also fill the endpoint with one click: **use default** restores the server’s `WISP_URL`,
-and **use official backup** switches to a second relay run by another site. Switching is always
-manual, and traffic through the backup is visible to that operator.
+Settings can also fill the endpoint with one click: **use default** restores the server’s `WISP_URL`
+(the operator may point this at another site’s relay, whose operator then sees those destination
+connections), and **use backup relay** switches to ojjyProxy’s own CloudFront relay. Switching is
+always manual.
 
 For development, `npm run relay` starts the relay alone on `127.0.0.1:9000`. `WISP_TEST_MODE=1`
 permits the loopback fixture only in nonproduction tests bound to `127.0.0.1`; it is never enabled

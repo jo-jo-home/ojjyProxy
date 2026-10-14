@@ -34,7 +34,8 @@ The [extensive blueprint](reports/ojjyProxy%20multiversion%20project%20blueprint
 **Status (2026-10-13):** live in production — the shell and five runtime origins run on Deno, and
 the owned Wisp relay runs on EC2 behind a CloudFront `wss://` endpoint with all six origins
 allowlisted. A server-side password gate (`SITE_PASSWORD`, rate-limited) protects the shell, and
-Settings can switch between the owned relay and a second, manually-selected backup relay.
+Settings can switch between the website's default relay and a second, manually-selected backup
+relay at any time.
 
 1. Deploy `relay/server.mjs` on your chosen forwarding-capable host.
 2. Assign its real hostname and HTTPS/WSS certificate.
