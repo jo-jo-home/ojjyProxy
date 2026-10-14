@@ -91,6 +91,18 @@ assets, the PWA manifest, and the appearance system (Lunar theme, sidebar layout
 fonts, cursors, panic exit, entrance animations). Remaining: tab pinning and transport capability
 surfacing.
 
+**UI refinement pass (2026-10-14) — completed:** the appearance system grew into a theme engine —
+twelve built-in themes including four light palettes (all validated against a WCAG contrast
+budget), an accent override with automatic readable ink on accent surfaces, corner radius, motion
+level, glass blur, and home background patterns; twelve interface fonts; eight cursor styles whose
+shapes re-tint to the live accent; custom palettes export/import as shareable theme codes; every
+hardcoded color in the shell swept onto theme variables; springy dialog/tab/toast motion with a
+proper a11y-safe animated dialog exit (inert + aria-hidden mid-fade); navigation shimmer and a
+pulsing connection indicator — all of it disabled by reduced-motion, performance mode, or the
+motion setting. Verified by the appearance-studio browser test plus the theme-table and
+contrast unit tests on Chromium, Firefox and WebKit. Plan and details:
+[docs/UI-REFINEMENT-PLAN.md](docs/UI-REFINEMENT-PLAN.md).
+
 **Completion check:** bookmark/tab operations persist correctly; keyboard and touch journeys work; controls remain reachable with an onscreen keyboard; appearance settings never overstate privacy.
 
 ## Phase 5 — advanced tools and combined reference features

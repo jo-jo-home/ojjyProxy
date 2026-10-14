@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import http from "node:http";
 import { WebSocketServer } from "ws";
 import { spawn } from "node:child_process";
-import { BACKUP_WISP, ENGINES } from "../../public/shared.js";
+import { BACKUP_WISP, ENGINES, THEMES } from "../../public/shared.js";
 let fixture, sockets, socketHost;
 test.beforeAll(async () => {
   fixture = http.createServer((request, response) => {
@@ -174,6 +174,106 @@ test("blue home, full selector, bookmarks and responsive settings", async ({ pag
   await page.keyboard.press("F9");
   await expect(page).toHaveURL(/localhost:8899\/next/);
   await expect(page.getByRole("heading", { name: "next fixture page" })).toBeVisible();
+});
+test("appearance studio: themes, accent, radius, motion, glass, patterns, theme codes", async ({
+  page,
+}) => {
+  const form = page.locator("#settings-form");
+  const save = page.getByRole("button", { name: "save settings", exact: true });
+  const open = () => page.locator("#global-settings").click();
+  const varOnBody = (name) =>
+    page.evaluate(
+      (property) => getComputedStyle(document.body).getPropertyValue(property).trim(),
+      name,
+    );
+  await page.goto("/");
+  await page.getByRole("button", { name: "customize", exact: true }).click();
+  await expect(form.locator("[name=theme] option")).toHaveCount(THEMES.length + 1);
+  // A light theme applies its palette and flips native controls to light.
+  await form.locator("[name=theme]").selectOption("daylight");
+  await save.click();
+  await expect(page.locator("body")).toHaveAttribute("data-theme", "daylight");
+  await expect(page.locator("body")).toHaveAttribute("data-scheme", "light");
+  expect(await varOnBody("--bg")).toBe("#f3f6fa");
+  // The accent override repaints the accent and re-picks readable button ink.
+  await open();
+  await form.locator("[name=accentOverride]").check();
+  await page.evaluate(() => {
+    document.querySelector("#settings-form [name=accentColor]").value = "#f0c040";
+  });
+  await save.click();
+  expect(await varOnBody("--accent")).toBe("#f0c040");
+  expect(await varOnBody("--accent-ink")).toBe("#10131a");
+  // "match theme" hands the accent back to the palette.
+  await open();
+  await page.getByRole("button", { name: "match theme", exact: true }).click();
+  await expect(form.locator("[name=accentOverride]")).not.toBeChecked();
+  await save.click();
+  expect(await varOnBody("--accent")).toBe("#2563eb");
+  expect(await varOnBody("--accent-ink")).toBe("#f7fafc");
+  // Radius, motion, glass and patterns map to CSS state; motion off disables
+  // computed animations entirely.
+  await open();
+  await form.locator("[name=radius]").selectOption("sharp");
+  await form.locator("[name=motion]").selectOption("off");
+  await form.locator("[name=glass]").selectOption("full");
+  await form.locator("[name=pattern]").selectOption("aurora");
+  await save.click();
+  await expect(page.locator("body")).toHaveAttribute("data-pattern", "aurora");
+  await expect(page.locator("body")).toHaveAttribute("data-glass", "full");
+  await expect(page.locator("body")).toHaveAttribute("data-motion", "off");
+  expect(await varOnBody("--radius")).toBe("0px");
+  expect(
+    await page.evaluate(() => getComputedStyle(document.querySelector("#home-settings")).borderRadius),
+  ).toBe("0px");
+  expect(
+    await page.evaluate(() => getComputedStyle(document.querySelector(".home")).animationName),
+  ).toBe("none");
+  // The shuffle button rolls the picker to another built-in theme.
+  await open();
+  const before = await form.locator("[name=theme]").inputValue();
+  await page.getByRole("button", { name: "surprise me with a theme" }).click();
+  await expect(form.locator("[name=theme]")).not.toHaveValue(before);
+  // Theme codes round-trip through the custom editor and reject garbage.
+  await form.locator("[name=theme]").selectOption("custom");
+  await expect(page.locator("#custom-colors")).toBeVisible();
+  await page.evaluate(() => {
+    document.querySelector("#settings-form [name=color-bg]").value = "#123456";
+  });
+  await page.getByRole("button", { name: "copy theme code" }).click();
+  const code = await form.locator("[name=themeCode]").inputValue();
+  expect(code.length).toBeGreaterThan(20);
+  await page.evaluate(() => {
+    document.querySelector("#settings-form [name=color-bg]").value = "#654321";
+  });
+  await page.getByRole("button", { name: "apply theme code", exact: true }).click();
+  expect(await form.locator("[name=color-bg]").inputValue()).toBe("#123456");
+  await page.evaluate(() => {
+    document.querySelector("#settings-form [name=themeCode]").value = "not-a-theme-code";
+  });
+  await page.getByRole("button", { name: "apply theme code", exact: true }).click();
+  await expect(page.locator("#settings-message")).toContainText("not valid");
+  // New fonts and accent-tinted cursors apply and persist across reloads.
+  await form.locator("[name=font]").selectOption("handwriting");
+  await form.locator("[name=cursor]").selectOption("ring");
+  await save.click();
+  await expect(page.locator("body")).toHaveAttribute("data-cursor", "ring");
+  expect(
+    await page.evaluate(() => document.getElementById("cursor-style").textContent),
+  ).toContain("data:image/svg+xml");
+  expect(await page.evaluate(() => getComputedStyle(document.body).fontFamily)).toContain(
+    "Segoe Script",
+  );
+  await page.reload();
+  await expect(page.locator("body")).toHaveAttribute("data-theme", "custom");
+  await expect(page.locator("body")).toHaveAttribute("data-pattern", "aurora");
+  await expect(page.locator("body")).toHaveAttribute("data-motion", "off");
+  await expect(page.locator("body")).toHaveAttribute("data-cursor", "ring");
+  expect(await varOnBody("--bg")).toBe("#123456");
+  expect(await varOnBody("--radius")).toBe("0px");
+  expect(await page.evaluate(() => getComputedStyle(document.body).fontFamily)).toContain(
+    "Segoe Script",
+  );
 });
 for (const engine of ENGINES) {
   test(`${engine.id} loads through the owned Wisp relay`, async ({ page }) => {

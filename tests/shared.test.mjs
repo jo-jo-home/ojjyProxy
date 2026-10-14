@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { BACKUP_WISP, ENGINES, flattenHeaders, toUrl, validateWisp } from "../public/shared.js";
+import {
+  BACKUP_WISP, COLOR_TOKENS, ENGINES, THEMES, contrastRatio, flattenHeaders, readableInk, toUrl,
+  validateWisp,
+} from "../public/shared.js";
 test("stable default and exact selectable releases", () => {
   assert.equal(ENGINES[0].id, "sj-1.1.0");
   assert.deepEqual(ENGINES.map((engine) => engine.id), [
@@ -54,4 +57,45 @@ test("every engine declares warm-up assets", () => {
     ENGINES.every((engine) => Array.isArray(engine.warm) && engine.warm.length > 0 &&
       engine.warm.every((file) => file.startsWith("/runtime/vendor/"))),
   );
+});
+test("theme table is ordered, unique and carries complete palettes", () => {
+  assert.ok(THEMES.length >= 12, "at least twelve built-in themes");
+  assert.equal(THEMES[0].id, "default", "hub blue stays the default");
+  const ids = THEMES.map((theme) => theme.id);
+  assert.equal(new Set(ids).size, ids.length, "theme ids are unique");
+  assert.ok(THEMES.some((theme) => theme.scheme === "light"), "light themes exist");
+  for (const theme of THEMES) {
+    assert.match(theme.label, /\S/, `${theme.id} has a label`);
+    assert.ok(["dark", "light"].includes(theme.scheme), `${theme.id} scheme`);
+    assert.match(theme.glow, /^#[\da-f]{6}$/i, `${theme.id} glow`);
+    for (const token of COLOR_TOKENS) {
+      assert.match(theme.colors[token], /^#[\da-f]{6}$/i, `${theme.id} ${token}`);
+    }
+  }
+});
+test("theme palettes meet the contrast budget", () => {
+  for (const theme of THEMES) {
+    const colors = theme.colors;
+    const checks = [
+      ["text on bg", colors.text, colors.bg, 7],
+      ["text2 on bg2", colors.text2, colors.bg2, 7],
+      ["muted on bg", colors.muted, colors.bg, 4.5],
+      ["muted on bg2", colors.muted, colors.bg2, 4.5],
+      ["accent on bg2", colors.accent, colors.bg2, 3],
+      ["star on bg2", colors.star, colors.bg2, 3],
+      ["danger on bg2", colors.danger, colors.bg2, 3],
+      ["success on bg2", colors.success, colors.bg2, 3],
+    ];
+    for (const [name, one, two, minimum] of checks) {
+      assert.ok(
+        contrastRatio(one, two) >= minimum,
+        `${theme.id}: ${name} is ${contrastRatio(one, two).toFixed(2)} < ${minimum}`,
+      );
+    }
+  }
+});
+test("readable ink flips for dark and light accents", () => {
+  assert.equal(readableInk("#2e6bbd"), "#f7fafc");
+  assert.equal(readableInk("#f0c040"), "#10131a");
+  assert.throws(() => readableInk("blue"));
 });

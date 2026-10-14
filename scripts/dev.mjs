@@ -21,9 +21,12 @@ function stop(code = 0) {
 }
 process.on("SIGINT", () => stop());
 process.on("SIGTERM", () => stop());
+// Runtimes validate the parent origin; in dev they must be told which port
+// the shell runs on (server.ts only assumes 8000 when this is unset).
+const parent = `http://localhost:${process.env.DEV_PORT || "8000"}`;
 const args = ["run", "--allow-net", "--allow-read=public", "--allow-env", "server.ts"];
 run("deno", args, {
-  PORT: "8000",
+  PORT: process.env.DEV_PORT || "8000",
   HOST: "127.0.0.1",
   RUNTIME_ENGINE: "",
   PUBLIC_APP_ORIGIN: "",
@@ -33,7 +36,7 @@ for (const engine of ENGINES) {
     PORT: String(engine.port),
     HOST: "127.0.0.1",
     RUNTIME_ENGINE: engine.id,
-    PUBLIC_APP_ORIGIN: "",
+    PUBLIC_APP_ORIGIN: parent,
   });
 }
 run("node", ["relay/server.mjs"]);

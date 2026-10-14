@@ -1,4 +1,6 @@
-import { BACKUP_WISP, ENGINES, toUrl, validateWisp } from "./shared.js";
+import {
+  BACKUP_WISP, COLOR_TOKENS, ENGINES, THEMES, hexLuminance, readableInk, toUrl, validateWisp,
+} from "./shared.js";
 const $ = (id) => document.getElementById(id);
 const KEY = "ojjyproxy-app-v1";
 const defaults = {
@@ -11,6 +13,12 @@ const defaults = {
   layout: "top",
   cursor: "system",
   font: "system",
+  accentColor: "",
+  accentOverride: false,
+  radius: "medium",
+  motion: "full",
+  glass: "none",
+  pattern: "plain",
   panicKey: "",
   panicUrl: "",
   title: "",
@@ -30,6 +38,9 @@ try {
 } catch { /* Recover from corrupt local data. */ }
 let settings = { ...defaults, ...saved.settings };
 if (!ENGINES.some((engine) => engine.id === settings.engine)) settings.engine = defaults.engine;
+if (!THEMES.some((theme) => theme.id === settings.theme) && settings.theme !== "custom") {
+  settings.theme = defaults.theme;
+}
 if (typeof settings.discreet !== "boolean") settings.discreet = false;
 let bookmarks = Array.isArray(saved.bookmarks)
   ? saved.bookmarks.filter((item) => item && /^https?:\/\//.test(item.url))
@@ -108,22 +119,7 @@ function button(text, handler, className = "") {
   node.addEventListener("click", handler);
   return node;
 }
-const COLOR_TOKENS = [
-  "bg", "bg2", "bg3", "border", "accent", "text", "text2", "muted", "star", "danger", "success",
-];
-const HUB_BLUE = {
-  bg: "#0a1628",
-  bg2: "#111d2e",
-  bg3: "#162a42",
-  border: "#1e3a5f",
-  accent: "#2e6bbd",
-  text: "#e2e8f0",
-  text2: "#c8d6e5",
-  muted: "#90a3b9",
-  star: "#f0c040",
-  danger: "#e05555",
-  success: "#4ade80",
-};
+const HUB_BLUE = THEMES[0].colors;
 const FONT_STACKS = {
   system: "",
   segoe: "'Segoe UI',system-ui,-apple-system,sans-serif",
@@ -133,38 +129,127 @@ const FONT_STACKS = {
   times: "'Times New Roman',Times,serif",
   mono: "ui-monospace,'Cascadia Mono',Menlo,Consolas,monospace",
   rounded: "'Comic Sans MS','Comic Sans','Chalkboard SE',cursive",
+  palatino: "'Palatino Linotype','Iowan Old Style',Palatino,'Book Antiqua',Georgia,serif",
+  avenir: "'Avenir Next','Avenir','Futura','Century Gothic','Segoe UI',sans-serif",
+  handwriting: "'Segoe Script','Bradley Hand','Brush Script MT',cursive",
+  courier: "'Courier New',Courier,'Nimbus Mono PS',monospace",
 };
-function applyCustomColors() {
+const RADIUS_MAP = { sharp: "0px", soft: "8px", medium: "12px", round: "16px", extra: "22px" };
+const MOTION_LEVELS = ["full", "subtle", "off"];
+const GLASS_LEVELS = ["none", "subtle", "full"];
+const PATTERN_LEVELS = ["plain", "dots", "grid", "aurora"];
+// Accent-tinted cursor shapes, drawn as SVG data URIs with the live palette.
+const CURSOR_SHAPES = {
+  dot: {
+    hotspot: [9, 9],
+    svg: (accent, ink) =>
+      `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18"><circle cx="9" cy="9" r="5.5" fill="none" stroke="${accent}" stroke-width="2"/><circle cx="9" cy="9" r="1.7" fill="${accent}"/></svg>`,
+  },
+  lunar: {
+    hotspot: [3, 3],
+    svg: (accent) =>
+      `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><path d="M14 2a8.5 8.5 0 1 0 4 15.9A7 7 0 0 1 14 2z" fill="${accent}"/></svg>`,
+  },
+  ring: {
+    hotspot: [9, 9],
+    svg: (accent, ink) =>
+      `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18"><circle cx="9" cy="9" r="6" fill="none" stroke="${accent}" stroke-width="2.5"/><circle cx="9" cy="9" r="1.4" fill="${ink}"/></svg>`,
+  },
+  diamond: {
+    hotspot: [10, 10],
+    svg: (accent, ink) =>
+      `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><path d="M10 1 19 10 10 19 1 10z" fill="${accent}"/><path d="M10 7 13 10 10 13 7 10z" fill="${ink}"/></svg>`,
+  },
+  star: {
+    hotspot: [10, 10],
+    svg: (accent, ink) =>
+      `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><path d="M10 1.5 12.4 7.2 18.5 7.8 14 12l1.4 6L10 15l-5.4 3L6 12 1.5 7.8 7.6 7.2z" fill="${accent}"/><circle cx="10" cy="10" r="1.5" fill="${ink}"/></svg>`,
+  },
+};
+function liveColor(name, fallback) {
+  const value = getComputedStyle(document.body).getPropertyValue(name).trim();
+  return /^#[\da-f]{6}$/i.test(value) ? value : fallback;
+}
+function applyPalette() {
   const root = document.documentElement;
-  const colors = settings.theme === "custom" ? settings.customColors : null;
+  const theme = THEMES.find((item) => item.id === settings.theme);
+  const colors = settings.theme === "custom"
+    ? { ...HUB_BLUE, ...(settings.customColors || {}) }
+    : theme?.colors || HUB_BLUE;
   for (const token of COLOR_TOKENS) {
-    if (colors?.[token] && /^#[\da-f]{6}$/i.test(colors[token])) {
-      root.style.setProperty("--" + token, colors[token]);
-    } else root.style.removeProperty("--" + token);
+    if (/^#[\da-f]{6}$/i.test(colors[token] || "")) root.style.setProperty("--" + token, colors[token]);
   }
+  root.style.setProperty(
+    "--glow",
+    theme ? theme.glow : "color-mix(in srgb, var(--text) 8%, var(--bg))",
+  );
+  document.body.dataset.theme = settings.theme;
+  document.body.dataset.scheme = settings.theme === "custom"
+    ? (hexLuminance(colors.bg) > 0.4 ? "light" : "dark")
+    : theme?.scheme || "dark";
+  document.querySelector('meta[name="theme-color"]').content = colors.bg;
+}
+function applyAccent() {
+  const root = document.documentElement;
+  if (settings.accentOverride && /^#[\da-f]{6}$/i.test(settings.accentColor || "")) {
+    root.style.setProperty("--accent", settings.accentColor);
+  }
+  const accent = liveColor("--accent", HUB_BLUE.accent);
+  root.style.setProperty("--accent-ink", readableInk(accent));
+  applyCursor();
+}
+function cursorSelector(value) {
+  return `body[data-cursor=${settings.cursor}],body[data-cursor=${settings.cursor}] button,body[data-cursor=${settings.cursor}] a,body[data-cursor=${settings.cursor}] label,body[data-cursor=${settings.cursor}] select,body[data-cursor=${settings.cursor}] summary{cursor:${value}}`;
 }
 function applyCursor() {
-  document.body.dataset.cursor = settings.cursor === "custom" ? "custom" : settings.cursor;
-  let style = document.getElementById("cursor-style");
-  if (settings.cursor !== "custom" || !settings.customCursor) {
+  document.body.dataset.cursor = settings.cursor;
+  const style = document.getElementById("cursor-style");
+  const shape = CURSOR_SHAPES[settings.cursor];
+  if (settings.cursor === "system") {
     style?.remove();
     return;
   }
-  if (!style) {
-    style = document.createElement("style");
-    style.id = "cursor-style";
-    document.head.append(style);
+  let css = "";
+  if (settings.cursor === "custom") {
+    if (!settings.customCursor) {
+      style?.remove();
+      return;
+    }
+    css = cursorSelector(`url("${settings.customCursor.replace(/"/g, "")}") 0 0,auto`);
+  } else if (settings.cursor === "crosshair") css = cursorSelector("crosshair");
+  else if (shape) {
+    const svg = shape.svg(liveColor("--accent", HUB_BLUE.accent), liveColor("--accent-ink", "#ffffff"));
+    css = cursorSelector(
+      `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${shape.hotspot.join(" ")},auto`,
+    );
+  } else {
+    style?.remove();
+    return;
   }
-  style.textContent =
-    "body[data-cursor=custom],body[data-cursor=custom] button,body[data-cursor=custom] a," +
-    "body[data-cursor=custom] label,body[data-cursor=custom] select,body[data-cursor=custom] summary" +
-    `{cursor:url("${settings.customCursor.replace(/"/g, "")}") 0 0,auto}`;
+  const node = style || document.createElement("style");
+  node.id = "cursor-style";
+  node.textContent = css;
+  if (!style) document.head.append(node);
 }
 function applyFont() {
   const root = document.documentElement;
   const stack = FONT_STACKS[settings.font] || "";
   if (stack) root.style.setProperty("--app-font", stack);
   else root.style.removeProperty("--app-font");
+}
+function applyRadius() {
+  document.documentElement.style.setProperty("--radius", RADIUS_MAP[settings.radius] || RADIUS_MAP.medium);
+}
+function applyMotion() {
+  document.body.dataset.motion = MOTION_LEVELS.includes(settings.motion) ? settings.motion : "full";
+}
+function applyGlass() {
+  document.body.dataset.glass = GLASS_LEVELS.includes(settings.glass) ? settings.glass : "none";
+}
+function applyPattern() {
+  document.body.dataset.pattern = PATTERN_LEVELS.includes(settings.pattern)
+    ? settings.pattern
+    : "plain";
 }
 function panicExit() {
   // Immediate exit: replace() keeps the proxy out of the tab's history.
@@ -177,11 +262,14 @@ function syncCursorVisibility() {
   $("cursor-url-row").hidden = $("settings-form").elements.namedItem("cursor").value !== "custom";
 }
 function setTheme() {
-  document.body.dataset.theme = settings.theme;
-  document.body.dataset.layout = settings.layout === "sidebar" ? "sidebar" : "top";
-  applyCustomColors();
-  applyCursor();
+  applyPalette();
+  applyAccent();
   applyFont();
+  applyRadius();
+  applyMotion();
+  applyGlass();
+  applyPattern();
+  document.body.dataset.layout = settings.layout === "sidebar" ? "sidebar" : "top";
   document.body.classList.toggle("performance", settings.performance);
   $("browser").classList.toggle("docked", settings.style === "docked");
   document.title = settings.title || "ojjyProxy";
@@ -248,6 +336,8 @@ function selectTab(id) {
 }
 function renderTabs() {
   const area = $("tabs");
+  const grew = tabs.length > renderedTabs;
+  renderedTabs = tabs.length;
   area.replaceChildren();
   for (const tab of tabs) {
     const group = document.createElement("div");
@@ -282,8 +372,11 @@ function renderTabs() {
     });
     area.append(group);
   }
+  // Only genuinely new tabs get the pop-in; re-renders of the same set stay still.
+  if (grew && area.lastElementChild) area.lastElementChild.classList.add("tab-in");
   updateTabsList();
 }
+let renderedTabs = 0;
 function updateTabsList() {
   $("tabs-list").hidden = tabs.length < 8;
 }
@@ -646,7 +739,7 @@ function editBookmark(item = null) {
   form.elements.favorite.checked = item?.favorite ?? true;
   form.elements.folder.value = item?.folder || "";
   $("bookmark-error").textContent = "";
-  $("bookmark-dialog").showModal();
+  openDialog($("bookmark-dialog"));
 }
 $("bookmark-form").addEventListener("submit", (event) => {
   event.preventDefault();
@@ -671,7 +764,7 @@ $("bookmark-form").addEventListener("submit", (event) => {
     persist();
     renderShortcuts();
     if ($("library").open) renderLibrary();
-    $("bookmark-dialog").close();
+    closeDialog($("bookmark-dialog"));
     notify("Bookmark saved.");
   } catch (error) {
     $("bookmark-error").textContent = error.message;
@@ -690,7 +783,7 @@ function openLibrary(type) {
   $("library-filter").hidden = !["bookmarks", "history"].includes(type);
   $("library-add").hidden = type !== "bookmarks";
   renderLibrary();
-  $("library").showModal();
+  openDialog($("library"));
 }
 function renderLibrary() {
   const container = $("library-content");
@@ -847,7 +940,7 @@ function renderLibrary() {
       const row = document.createElement("div");
       row.className = "library-row";
       const open = button("", () => {
-        $("library").close();
+        closeDialog($("library"));
         navigate(item.url);
       }, "row-open");
       const title = document.createElement("strong");
@@ -903,10 +996,14 @@ function openSettings() {
       computed.getPropertyValue("--" + token).trim() || HUB_BLUE[token];
   }
   form.elements.namedItem("customCursor").value = settings.customCursor || "";
+  form.elements.namedItem("accentColor").value = settings.accentOverride && settings.accentColor
+    ? settings.accentColor
+    : liveColor("--accent", HUB_BLUE.accent);
+  form.elements.namedItem("themeCode").value = "";
   syncCustomColorsVisibility();
   syncCursorVisibility();
   $("settings-message").textContent = "changes apply when saved";
-  $("settings").showModal();
+  openDialog($("settings"));
 }
 function readSettings() {
   const form = $("settings-form");
@@ -946,6 +1043,14 @@ function readSettings() {
     )
   ) throw new Error("Blocked domains must be hostnames, without paths or URLs.");
   result.blocked = domains.map((host) => host.toLowerCase()).join("\n");
+  result.accentColor = result.accentOverride ? (result.accentColor || "") : "";
+  if (result.accentOverride && !/^#[\da-f]{6}$/i.test(result.accentColor)) {
+    throw new Error("Choose a valid accent color, or turn the override off.");
+  }
+  if (!Object.keys(RADIUS_MAP).includes(result.radius)) result.radius = defaults.radius;
+  if (!MOTION_LEVELS.includes(result.motion)) result.motion = defaults.motion;
+  if (!GLASS_LEVELS.includes(result.glass)) result.glass = defaults.glass;
+  if (!PATTERN_LEVELS.includes(result.pattern)) result.pattern = defaults.pattern;
   return result;
 }
 $("settings-form").addEventListener("submit", (event) => {
@@ -954,7 +1059,7 @@ $("settings-form").addEventListener("submit", (event) => {
     settings = readSettings();
     persist();
     setTheme();
-    $("settings").close();
+    closeDialog($("settings"));
     notify("Settings saved. Runtime changes apply when a tab is reopened.");
   } catch (error) {
     $("settings-message").textContent = error.message;
@@ -967,14 +1072,14 @@ $("switch-engine").addEventListener("click", () => {
     setTheme();
     const tab = active();
     if (!tab.url) {
-      $("settings").close();
+      closeDialog($("settings"));
       return notify("Default engine updated for new tabs.");
     }
     const target = tab.url;
     tab.engine = settings.engine;
     destroyRuntime(tab);
     tab.error = "";
-    $("settings").close();
+    closeDialog($("settings"));
     navigate(target, tab);
   } catch (error) {
     $("settings-message").textContent = error.message;
@@ -1025,19 +1130,74 @@ function populateEngineOptions(available) {
   }
   if (available.some((engine) => engine.id === previous)) select.value = previous;
 }
+function populateThemeOptions() {
+  const select = $("settings-form").elements.namedItem("theme");
+  select.replaceChildren();
+  for (const theme of [...THEMES, { id: "custom", label: "Custom colors" }]) {
+    const option = document.createElement("option");
+    option.value = theme.id;
+    option.textContent = theme.label;
+    select.append(option);
+  }
+  select.value = settings.theme;
+}
 // Live preview: the address bar masks as soon as the toggle flips.
 $("settings-form").elements.namedItem("discreet").addEventListener("change", (event) => {
   for (const id of ["address", "home-input"]) {
     $(id).type = event.target.checked ? "password" : "text";
   }
 });
+function openDialog(node) {
+  // A dialog that is mid-exit must come back fully: drop the closing state.
+  node.classList.remove("dialog-closing");
+  node.removeAttribute("aria-hidden");
+  node.inert = false;
+  node.showModal();
+}
+function closeDialog(node) {
+  if (!node?.open) return;
+  const still = node.classList.contains("dialog-closing");
+  node.classList.remove("dialog-closing");
+  if (
+    still || settings.performance || settings.motion === "off" ||
+    matchMedia("(prefers-reduced-motion: reduce)").matches
+  ) {
+    node.inert = false;
+    node.removeAttribute("aria-hidden");
+    node.close();
+    return;
+  }
+  // The exiting dialog keeps its visuals but stops being clickable, focusable
+  // or exposed to assistive technology, so nothing can match or use it mid-fade.
+  node.inert = true;
+  node.setAttribute("aria-hidden", "true");
+  node.classList.add("dialog-closing");
+  const finish = () => {
+    node.classList.remove("dialog-closing");
+    node.removeEventListener("animationend", finish);
+    node.inert = false;
+    node.removeAttribute("aria-hidden");
+    node.close();
+  };
+  node.addEventListener("animationend", finish);
+  // Safety net: if the animation is skipped or interrupted, still close.
+  setTimeout(() => {
+    if (node.open && node.classList.contains("dialog-closing")) finish();
+  }, 400);
+}
+document.querySelectorAll("dialog").forEach((node) =>
+  node.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeDialog(node);
+  })
+);
 document.querySelectorAll("[data-close]").forEach((node) =>
-  node.addEventListener("click", () => node.closest("dialog").close())
+  node.addEventListener("click", () => closeDialog(node.closest("dialog")))
 );
 document.querySelectorAll("[data-panel]").forEach((node) =>
   node.addEventListener("click", () => openLibrary(node.dataset.panel))
 );
-$("open-help").addEventListener("click", () => $("help").showModal());
+$("open-help").addEventListener("click", () => openDialog($("help")));
 document.querySelectorAll("[data-sort]").forEach((node) =>
   node.addEventListener("click", () => {
     sort = node.dataset.sort;
@@ -1067,6 +1227,63 @@ $("reset-colors").addEventListener("click", () => {
     form.elements.namedItem("color-" + token).value = HUB_BLUE[token];
   }
   $("settings-message").textContent = "Colors reset to hub blue. Save settings to apply.";
+});
+$("match-theme").addEventListener("click", () => {
+  const form = $("settings-form");
+  form.elements.namedItem("accentColor").value = liveColor("--accent", HUB_BLUE.accent);
+  form.elements.namedItem("accentOverride").checked = false;
+  $("settings-message").textContent = "Accent follows the theme again. Save settings to apply.";
+});
+$("shuffle-theme").addEventListener("click", () => {
+  const form = $("settings-form");
+  const current = form.elements.namedItem("theme").value;
+  const pool = THEMES.filter((theme) => theme.id !== current);
+  const pick = pool[Math.floor(Math.random() * pool.length)];
+  form.elements.namedItem("theme").value = pick.id;
+  syncCustomColorsVisibility();
+  $("settings-message").textContent = `Theme rolled: ${pick.label}. Save settings to apply.`;
+});
+function themeCodeFromInputs() {
+  const form = $("settings-form");
+  const colors = {};
+  for (const token of COLOR_TOKENS) colors[token] = form.elements.namedItem("color-" + token).value;
+  return btoa(JSON.stringify({ v: 1, colors }));
+}
+$("export-theme").addEventListener("click", async () => {
+  const code = themeCodeFromInputs();
+  const field = $("settings-form").elements.namedItem("themeCode");
+  field.value = code;
+  field.focus();
+  field.select();
+  try {
+    await navigator.clipboard.writeText(code);
+    $("settings-message").textContent = "Theme code is in the box and copied. Share it freely.";
+  } catch {
+    $("settings-message").textContent = "Theme code is in the box — copy it from there.";
+  }
+});
+$("apply-theme").addEventListener("click", () => {
+  const form = $("settings-form");
+  try {
+    const parsed = JSON.parse(atob(form.elements.namedItem("themeCode").value.trim()));
+    if (parsed?.v !== 1 || typeof parsed.colors !== "object" || !parsed.colors) {
+      throw new Error("bad code");
+    }
+    const colors = {};
+    for (const token of COLOR_TOKENS) {
+      const value = String(parsed.colors[token] || "");
+      if (!/^#[\da-f]{6}$/i.test(value)) throw new Error("bad code");
+      colors[token] = value.toLowerCase();
+    }
+    form.elements.namedItem("theme").value = "custom";
+    syncCustomColorsVisibility();
+    for (const token of COLOR_TOKENS) {
+      form.elements.namedItem("color-" + token).value = colors[token];
+    }
+    $("settings-message").textContent = "Theme code applied to the editor. Save settings to apply.";
+  } catch {
+    $("settings-message").textContent = "That theme code is not valid.";
+  }
 });
 $("settings-form").elements.namedItem("panicKey").addEventListener("keydown", (event) => {
   // Record one non-typing key so the panic trigger never fights normal typing.
@@ -1427,4 +1644,7 @@ async function boot() {
   if (!tabs.length) newTab();
   else selectTab(tabs.some((tab) => tab.id === saved.activeId) ? saved.activeId : tabs[0].id);
 }
+// The theme picker needs its options before boot()'s config fetch resolves,
+// in case settings is opened on a slow network.
+populateThemeOptions();
 boot();

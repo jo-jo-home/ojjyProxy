@@ -58,9 +58,13 @@ compatibility, browser features, advanced tools and release polish.
 - Five engine/version choices, five search providers, and your configurable relay endpoint with
   one-click **use default** / **use backup relay** switching.
 - Optional site password gate: set `SITE_PASSWORD` on the outer app to serve a password page first.
-- Appearance controls: hub-blue, Midnight, Ocean, Lunar (purple) and fully custom color themes;
-  top-tabs or Lunar-style sidebar layout; eight interface fonts; five cursor styles including a
-  custom image; smooth entrance animations that respect reduced-motion and performance mode.
+- Appearance controls: twelve built-in themes — hub-blue, Midnight, Ocean, Lunar, Ember, Moss,
+  Rosewood, Graphite, and the light Daylight, Paper, Frost and Sakura palettes — plus a fully
+  custom eleven-color editor with shareable theme codes; an accent color that overrides any theme
+  (buttons re-pick readable ink automatically); corner-radius, motion-level, glass-blur and
+  home-background-pattern options; top-tabs or Lunar-style sidebar layout; twelve interface fonts;
+  eight cursor styles (accent-tinted shapes or a custom image); springy entrance, dialog, tab and
+  loading animations that respect reduced-motion, performance mode and the motion setting.
 - Panic exit: a recorded non-typing key or the ✕ strip button instantly replaces the site with a
   cover page of your choice.
 - Address-bar suggestions, bookmark folders, per-engine history chips, day clearing, a live
@@ -237,11 +241,16 @@ npx playwright install chromium
 npm run test:browser
 ```
 
+The browser suite runs its dev stack on **port 8700** (`DEV_PORT`), keeping it clear of port 8000,
+where a sibling project's dev server tends to respawn whenever the port is free. `npm run dev`
+for manual browsing still defaults to port 8000.
+
 Browser tests cover all five engines through the owned relay using a controlled destination:
 rewritten JavaScript, dynamic fetch, client/server cookies, links, canonical address updates, back
 navigation, domain filtering, POST bodies, dedicated workers, destination WebSocket echo, redirects
-with query and fragment, and the responsive interface. The full deep matrix passes on **Chromium
-(Epoxy and Libcurl) and Firefox (Epoxy and Libcurl)**, and on **WebKit for stable, 2.0.0-alpha, and
+with query and fragment, the responsive interface, and the appearance studio (themes, accent
+override, radius, motion, glass, patterns, theme codes, fonts and cursors). The full deep matrix
+passes on **Chromium and Firefox**, and on **WebKit for stable, 2.0.0-alpha, and
 2.0.2-alpha with every deep check**. These are controlled-fixture checks, not a guarantee for all
 websites or browsers.
 

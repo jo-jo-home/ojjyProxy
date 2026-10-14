@@ -181,3 +181,18 @@ suites → commit → push → live matrix.
 
 All suites green locally, pushed, live five-engine matrix green, plan checkboxes
 ticked, README/ROADMAP accurate.
+
+## Result (2026-10-14)
+
+Completed in full and verified: W1–W7 as specified, plus two robustness fixes found
+during testing — (1) animated dialog exits mark the dialog `inert` + `aria-hidden`
+mid-fade so nothing can match or use it while it disappears, with an `openDialog`
+helper that fully resets closing state; (2) the browser-suite dev stack moved to a
+dedicated port 8700 (`DEV_PORT`) because a sibling project's dev server respawns on
+port 8000, and dev runtimes are now told the shell's real port via `PUBLIC_APP_ORIGIN`
+instead of relying on the server's 8000 fallback.
+
+Verified: 12 Deno/Node unit checks (including the theme-table, contrast-budget and
+readable-ink tests), 10 Chromium browser tests, 10 Firefox, 9+1 documented WebKit skip,
+reproducible build (no vendor/manifest drift), and the live five-engine matrix against
+production after push.
