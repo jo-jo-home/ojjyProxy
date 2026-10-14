@@ -66,6 +66,14 @@ getter, engine document COEP normalized away, and 2.0.0-alpha sockets bridged. R
 skipped on WebKit (wasm rewriter arrow-comment output plus a controller-RPC DataCloneError);
 UV POST bodies never deliver on WebKit.
 
+**Filter-resilience pass (2026-10-14) — completed:** keyword filters at schools were observed
+blocking engine downloads by URL (`…/scramjet.all.js` failed while every neutral-named file on the
+same origin loaded). All runtime vendor URLs are now deliberately neutral (`app.js`, `bundled.js`,
+`main.js`, `bridge/`, `net-a/`…), renamed at build time so pinned artifacts stay traceable; vendor
+script loads retry up to three times and explain filtering plainly when they still fail. A unit
+test keeps every `/runtime/vendor/…` URL free of tool names (scramjet, ultraviolet, baremux,
+epoxy, libcurl, mercury, titanium).
+
 **Completion check:** a release/browser/feature matrix identifies passes and limitations; failed cases give actionable errors; version data stays isolated; returning tabs recover without frozen controllers or accidental POST replay.
 
 ## Phase 4 — complete the everyday browser experience · in progress

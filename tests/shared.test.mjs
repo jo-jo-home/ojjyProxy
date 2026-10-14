@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   BACKUP_WISP, COLOR_TOKENS, ENGINES, THEMES, contrastRatio, flattenHeaders, readableInk, toUrl,
   validateWisp,
@@ -98,4 +99,25 @@ test("readable ink flips for dark and light accents", () => {
   assert.equal(readableInk("#2e6bbd"), "#f7fafc");
   assert.equal(readableInk("#f0c040"), "#10131a");
   assert.throws(() => readableInk("blue"));
+});
+test("runtime vendor URLs contain no filter-matched tool names", () => {
+  // Keyword filters at schools block URLs naming known proxy tooling; every
+  // URL the runtime can request must stay neutral.
+  const flagged = /scramjet|ultraviolet|baremux|epoxy|libcurl|mercury|titanium|uv\./i;
+  const sources = [
+    ["../public/runtime/adapter.js"],
+    ["../public/runtime/sw.js"],
+    ["../public/runtime/alpha2-client.js"],
+    ["../public/runtime/alpha2-shared.js"],
+    ["../server.ts"],
+  ];
+  for (const [file] of sources) {
+    const text = readFileSync(new URL(file, import.meta.url), "utf8");
+    const urls = [...text.matchAll(/\/runtime\/vendor\/[\w./-]+/g)].map((match) => match[0]);
+    assert.ok(urls.length > 0, `${file} exposes no vendor URLs`);
+    for (const url of urls) assert.ok(!flagged.test(url), `${file} leaks a tool name in ${url}`);
+  }
+  for (const engine of ENGINES) {
+    for (const url of engine.warm) assert.ok(!flagged.test(url), `warm list leaks in ${url}`);
+  }
 });

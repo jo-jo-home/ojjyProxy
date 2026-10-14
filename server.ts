@@ -193,9 +193,9 @@ export async function handle(request: Request): Promise<Response> {
         MIME.js,
       );
     }
-    if (url.pathname === "/runtime/vendor/uv.config.js") {
+    if (url.pathname === "/runtime/vendor/config.js") {
       return response(
-        `self.__uv$config={prefix:"/runtime/network/",encodeUrl:Ultraviolet.codec.xor.encode,decodeUrl:Ultraviolet.codec.xor.decode,handler:"/runtime/vendor/uv.handler.js",client:"/runtime/vendor/uv.client.js",bundle:"/runtime/vendor/uv.bundle.js",config:"/runtime/vendor/uv.config.js",sw:"/runtime/vendor/uv.sw.js"};`,
+        `self.__uv$config={prefix:"/runtime/network/",encodeUrl:Ultraviolet.codec.xor.encode,decodeUrl:Ultraviolet.codec.xor.decode,handler:"/runtime/vendor/handler.js",client:"/runtime/vendor/client.js",bundle:"/runtime/vendor/bundle.js",config:"/runtime/vendor/config.js",sw:"/runtime/vendor/app.sw.js"};`,
         200,
         MIME.js,
       );
@@ -213,14 +213,16 @@ export async function handle(request: Request): Promise<Response> {
         return response("Service worker not controlling this page. Reload the runtime.", 503);
       }
       if (pathname.startsWith("/runtime/vendor/")) {
+        // URL prefixes stay deliberately neutral (bridge/, net-a/…) so
+        // keyword-based filtering cannot match known tool names in requests.
         const relative = pathname.slice("/runtime/vendor/".length);
-        const folder = relative.startsWith("baremux/")
+        const folder = relative.startsWith("bridge/")
           ? "bare-mux"
-          : relative.startsWith("epoxy-modern/")
+          : relative.startsWith("net-c/")
           ? "epoxy-modern"
-          : relative.startsWith("epoxy/")
+          : relative.startsWith("net-a/")
           ? "epoxy-transport"
-          : relative.startsWith("libcurl/")
+          : relative.startsWith("net-b/")
           ? "libcurl-transport"
           : engine;
         const leaf =

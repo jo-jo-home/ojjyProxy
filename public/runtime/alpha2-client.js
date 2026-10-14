@@ -36,7 +36,7 @@
         const worker = Reflect.construct(target, args, newTarget);
         // Workers cannot construct SharedWorkers. Give each one a fresh port
         // from its creating document after the core has rewritten its URL.
-        const connection = new BareMux.BareMuxConnection('/runtime/vendor/baremux/worker.js');
+        const connection = new BareMux.BareMuxConnection('/runtime/vendor/bridge/worker.js');
         Promise.resolve(connection.getInnerPort()).then((port) => {
           nativeWorkerPost.call(worker, { __ojjyWorkerPort: true }, [port]);
           connection.worker.channel?.close();

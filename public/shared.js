@@ -1,9 +1,9 @@
 export const ENGINES = [
-  { id: "sj-1.1.0", label: "Scramjet stable (1.1.0)", short: "Scramjet stable", port: 8100, warm: ["/runtime/vendor/scramjet.all.js", "/runtime/vendor/scramjet.wasm.wasm"] },
-  { id: "sj-2.0.0-alpha", label: "Scramjet 2.0.0-alpha", short: "Scramjet α0", port: 8200, warm: ["/runtime/vendor/scramjet.all.js", "/runtime/vendor/scramjet.wasm.wasm"] },
-  { id: "sj-2.0.2-alpha", label: "Scramjet 2.0.2-alpha", short: "Scramjet α2", port: 8300, warm: ["/runtime/vendor/scramjet_bundled.js"] },
-  { id: "sj-2.0.67-alpha.2", label: "Scramjet 2.0.67-alpha.2", short: "Scramjet α67", port: 8400, warm: ["/runtime/vendor/scramjet.js", "/runtime/vendor/scramjet.wasm"] },
-  { id: "uv-3.2.10", label: "Ultraviolet (3.2.10) — legacy", short: "Ultraviolet", port: 8500, warm: ["/runtime/vendor/uv.bundle.js"] },
+  { id: "sj-1.1.0", label: "Scramjet stable (1.1.0)", short: "Scramjet stable", port: 8100, warm: ["/runtime/vendor/app.js", "/runtime/vendor/app.wasm"] },
+  { id: "sj-2.0.0-alpha", label: "Scramjet 2.0.0-alpha", short: "Scramjet α0", port: 8200, warm: ["/runtime/vendor/app.js", "/runtime/vendor/app.wasm"] },
+  { id: "sj-2.0.2-alpha", label: "Scramjet 2.0.2-alpha", short: "Scramjet α2", port: 8300, warm: ["/runtime/vendor/bundled.js"] },
+  { id: "sj-2.0.67-alpha.2", label: "Scramjet 2.0.67-alpha.2", short: "Scramjet α67", port: 8400, warm: ["/runtime/vendor/main.js", "/runtime/vendor/main.wasm"] },
+  { id: "uv-3.2.10", label: "Ultraviolet (3.2.10) — legacy", short: "Ultraviolet", port: 8500, warm: ["/runtime/vendor/bundle.js"] },
 ];
 export const SEARCH = {
   duckduckgo: "https://duckduckgo.com/?q=",

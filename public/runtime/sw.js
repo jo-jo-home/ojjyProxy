@@ -2,23 +2,23 @@ importScripts("/runtime/config.js");
 const config = self.PROXY_CONFIG;
 let engine;
 if (config.engine === "sj-1.1.0" || config.engine === "sj-2.0.0-alpha") {
-  importScripts("/runtime/vendor/scramjet.all.js");
+  importScripts("/runtime/vendor/app.js");
   const { ScramjetServiceWorker } = $scramjetLoadWorker();
   engine = new ScramjetServiceWorker();
 } else if (config.engine === "sj-2.0.67-alpha.2") {
   importScripts("/runtime/vendor/controller.sw.js");
 } else if (config.engine === "sj-2.0.2-alpha") {
   importScripts(
-    "/runtime/vendor/baremux/index.js",
-    "/runtime/vendor/scramjet_bundled.js",
+    "/runtime/vendor/bridge/index.js",
+    "/runtime/vendor/bundled.js",
     "/runtime/alpha2-shared.js",
     "/runtime/alpha2-worker.js",
   );
 } else if (config.engine === "uv-3.2.10") {
   importScripts(
-    "/runtime/vendor/uv.bundle.js",
-    "/runtime/vendor/uv.config.js",
-    "/runtime/vendor/uv.sw.js",
+    "/runtime/vendor/bundle.js",
+    "/runtime/vendor/config.js",
+    "/runtime/vendor/app.sw.js",
   );
   engine = new UVServiceWorker();
 }

@@ -1,4 +1,4 @@
-import { cp, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import path from "node:path";
 
@@ -47,6 +47,47 @@ for (const [engine, deps] of Object.entries(packages)) {
 for (const dep of ["bare-mux", "epoxy-transport", "epoxy-modern", "libcurl-transport"]) {
   await copyDist(dep, `public/vendor/${dep}`);
 }
+// School filters (GoGuardian, Securly, Lightspeed and friends) block URLs that
+// name known proxy tooling. Renames happen at build time so every URL the
+// runtime requests stays neutral, while the pinned artifacts remain traceable
+// through the notices and the manifest.
+const vendorRenames = {
+  "sj-1.1.0": {
+    "scramjet.all.js": "app.js",
+    "scramjet.wasm.wasm": "app.wasm",
+    "scramjet.sync.js": "app.sync.js",
+    "scramjet.bundle.js": "app.bundle.js",
+  },
+  "sj-2.0.0-alpha": {
+    "scramjet.all.js": "app.js",
+    "scramjet.wasm.wasm": "app.wasm",
+    "scramjet.sync.js": "app.sync.js",
+    "scramjet.bundle.js": "app.bundle.js",
+  },
+  "sj-2.0.2-alpha": {
+    "scramjet_bundled.js": "bundled.js",
+    "scramjet_bundled.mjs": "bundled.mjs",
+  },
+  "sj-2.0.67-alpha.2": {
+    "scramjet.js": "main.js",
+    "scramjet.wasm": "main.wasm",
+    "scramjet.mjs": "main.mjs",
+  },
+  "uv-3.2.10": {
+    "uv.bundle.js": "bundle.js",
+    "uv.handler.js": "handler.js",
+    "uv.client.js": "client.js",
+    "uv.sw.js": "app.sw.js",
+  },
+};
+for (const [engineDir, names] of Object.entries(vendorRenames)) {
+  for (const [from, to] of Object.entries(names)) {
+    await rename(`public/vendor/${engineDir}/${from}`, `public/vendor/${engineDir}/${to}`);
+  }
+}
+manifest.adaptations.push({
+  change: "Neutral vendor file names so filtering proxies cannot match tool names in URLs",
+});
 // Firefox does not expose request bodies through Request.body (the getter is
 // null even for buffered bodies) and drops stream bodies at Request
 // construction. Carry the body directly from the fetch init — buffering
@@ -67,7 +108,7 @@ for (const dep of ["bare-mux", "epoxy-transport", "epoxy-modern", "libcurl-trans
 // Stable 1.1.0 embeds its own private BareMux copy, so the vendored patch never
 // reaches it. Apply the same init-carry handling inside its internal client.
 {
-  const file = "public/vendor/sj-1.1.0/scramjet.all.js";
+  const file = "public/vendor/sj-1.1.0/app.js";
   const source = await readFile(file, "utf8");
   const patches = [
     ["async fetch(e,t){let r=new Request(e,t)", 'async fetch(e,t){if(t&&t.body instanceof ReadableStream)t={...t,body:await new Response(t.body).arrayBuffer()};let r=new Request(e,t)'],
@@ -81,7 +122,7 @@ for (const dep of ["bare-mux", "epoxy-transport", "epoxy-modern", "libcurl-trans
 // UV's bundled client re-exposes every body through the same getter; its
 // handler already buffers requests as Blobs, so carry that value directly.
 {
-  const file = "public/vendor/uv-3.2.10/uv.bundle.js";
+  const file = "public/vendor/uv-3.2.10/bundle.js";
   const source = await readFile(file, "utf8");
   const patches = [
     ["async fetch(t,r){let n=new Request(t,r)", 'async fetch(t,r){if(r&&r.body instanceof ReadableStream)r={...r,body:await new Response(r.body).arrayBuffer()};let n=new Request(t,r)'],
@@ -99,7 +140,7 @@ const bodyHelper =
   'async function __ojjyBody(t){const r=t.body;if(r instanceof ReadableStream){const a=await new Response(r).arrayBuffer();' +
   'try{t.body=a}catch{Object.defineProperty(t,"body",{value:a,writable:!1,configurable:!0})}return a}return r}\n';
 {
-  const file = "public/vendor/sj-2.0.0-alpha/scramjet.all.js";
+  const file = "public/vendor/sj-2.0.0-alpha/app.js";
   const source = await readFile(file, "utf8");
   const needle = 'body:k.body,headers:k.requestHeaders,credentials:"omit"';
   if (!source.includes(needle)) throw new Error("Alpha0 fetch body pattern changed");
@@ -125,7 +166,7 @@ manifest.adaptations.push({
   component: "epoxy-transport@2.1.28",
   change: "Await asynchronous destination WebSocket sends",
 });
-const alphaPath = "public/vendor/sj-2.0.0-alpha/scramjet.all.js";
+const alphaPath = "public/vendor/sj-2.0.0-alpha/app.js";
 let alpha = await readFile(alphaPath, "utf8");
 // Alpha0 assumes accessible parent/top/opener. Keep that release's runtime, but
 // guard only its cross-origin singleton probes so a nested runtime can initialize.

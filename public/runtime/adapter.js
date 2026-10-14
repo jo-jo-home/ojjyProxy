@@ -35,13 +35,32 @@ function fail(error) {
   send("error", { message: String(error.message || error) });
 }
 function script(src) {
-  return new Promise((resolve, reject) => {
-    const element = document.createElement("script");
-    element.src = src;
-    element.onload = resolve;
-    element.onerror = () => reject(new Error(`Missing runtime asset: ${src}`));
-    document.head.append(element);
-  });
+  const load = (url) =>
+    new Promise((resolve, reject) => {
+      const element = document.createElement("script");
+      element.src = url;
+      element.onload = resolve;
+      element.onerror = () => reject(new Error("load failed"));
+      document.head.append(element);
+    });
+  // Filtering or flaky networks can cut a single download; retry before
+  // declaring the asset unreachable.
+  return (async () => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await load(src);
+        return;
+      } catch (error) {
+        if (attempt === 2) {
+          throw new Error(
+            `Could not load ${src} after ${attempt + 1} tries. This network may be ` +
+              "filtering or cutting the download; try again, or choose another engine.",
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));
+      }
+    }
+  })();
 }
 function timeout(promise, label, ms = 20000) {
   let timer;
@@ -74,9 +93,9 @@ async function worker() {
   return navigator.serviceWorker.controller;
 }
 async function bareMux() {
-  await script("/runtime/vendor/baremux/index.js");
-  const connection = new BareMux.BareMuxConnection("/runtime/vendor/baremux/worker.js");
-  const selected = params.get("transport") === "libcurl" ? "libcurl" : "epoxy";
+  await script("/runtime/vendor/bridge/index.js");
+  const connection = new BareMux.BareMuxConnection("/runtime/vendor/bridge/worker.js");
+  const selected = params.get("transport") === "libcurl" ? "net-b" : "net-a";
   await connection.setTransport(`/runtime/vendor/${selected}/index.mjs`, [{ wisp: config.wisp }]);
 }
 function canonical() {
@@ -117,7 +136,7 @@ function report(type = "navigation") {
   send(type, { url, title });
 }
 async function epoxySockets() {
-  await script("/runtime/vendor/epoxy-modern/index.js");
+  await script("/runtime/vendor/net-c/index.js");
   // The UMD bundle publishes the namespace object: the class lives at
   // EpoxyTransport.EpoxyTransport (with a .default alias on some builds).
   const SocketTransport = EpoxyTransport.EpoxyTransport ?? EpoxyTransport.default ?? EpoxyTransport;
@@ -134,7 +153,7 @@ async function libcurlSockets() {
   const loaded = new Promise((resolve) =>
     document.addEventListener("libcurl_load", resolve, { once: true })
   );
-  await script("/runtime/vendor/libcurl/index.js");
+  await script("/runtime/vendor/net-b/index.js");
   await timeout(loaded, "Libcurl WebAssembly did not initialize.");
   const client = new CurlMod.default({ wisp: config.wisp });
   await timeout(client.init(), "Libcurl socket transport did not initialize.");
@@ -154,15 +173,15 @@ async function initialize() {
   }
   config.wisp = validateWisp(params.get("wisp") || config.wisp, location.protocol === "https:");
   if (config.engine === "sj-1.1.0" || config.engine === "sj-2.0.0-alpha") {
-    await script("/runtime/vendor/scramjet.all.js");
+    await script("/runtime/vendor/app.js");
     const { ScramjetController } = $scramjetLoadController();
     controller = new ScramjetController({
       prefix: config.prefix,
       wisp: config.wisp,
       files: {
-        wasm: "/runtime/vendor/scramjet.wasm.wasm",
-        all: "/runtime/vendor/scramjet.all.js",
-        sync: "/runtime/vendor/scramjet.sync.js",
+        wasm: "/runtime/vendor/app.wasm",
+        all: "/runtime/vendor/app.js",
+        sync: "/runtime/vendor/app.sync.js",
       },
     });
     await controller.init();
@@ -196,25 +215,25 @@ async function initialize() {
       );
     }
   } else if (config.engine === "sj-2.0.67-alpha.2") {
-    await script("/runtime/vendor/scramjet.js");
+    await script("/runtime/vendor/main.js");
     await script("/runtime/vendor/controller.api.js");
     const api = $scramjetController;
     Object.assign(api.config, {
       prefix: config.prefix,
-      scramjetPath: "/runtime/vendor/scramjet.js",
-      wasmPath: "/runtime/vendor/scramjet.wasm",
+      scramjetPath: "/runtime/vendor/main.js",
+      wasmPath: "/runtime/vendor/main.wasm",
       injectPath: "/runtime/vendor/controller.inject.js",
     });
     const serviceworker = await worker();
-    const selected = params.get("transport") === "libcurl" ? "libcurl" : "epoxy";
+    const useLibcurl = params.get("transport") === "libcurl";
     // The UMD Libcurl bundle announces its embedded WASM asynchronously.
     // Its old init() constructs a session before waiting, so await this event first.
-    const wasmReady = selected === "libcurl"
+    const wasmReady = useLibcurl
       ? new Promise((resolve) => document.addEventListener("libcurl_load", resolve, { once: true }))
       : null;
-    await script(`/runtime/vendor/${selected}/index.js`);
+    await script(`/runtime/vendor/${useLibcurl ? "net-b" : "net-a"}/index.js`);
     if (wasmReady) await timeout(wasmReady, "Libcurl WebAssembly did not initialize.");
-    const Client = selected === "libcurl" ? CurlMod.default : EpxMod.default;
+    const Client = useLibcurl ? CurlMod.default : EpxMod.default;
     const client = new Client({ wisp: config.wisp });
     await timeout(client.init(), "Could not initialize the transport.");
     const transport = {
@@ -244,8 +263,8 @@ async function initialize() {
     await bareMux();
     await worker();
   } else if (config.engine === "uv-3.2.10") {
-    await script("/runtime/vendor/uv.bundle.js");
-    await script("/runtime/vendor/uv.config.js");
+    await script("/runtime/vendor/bundle.js");
+    await script("/runtime/vendor/config.js");
     await bareMux();
     await worker();
   } else throw new Error("Unknown engine version.");

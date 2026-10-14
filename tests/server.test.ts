@@ -28,11 +28,11 @@ Deno.test("Deno shell serves headers and never exposes a forwarding endpoint", a
 Deno.test("runtime host routing selects correct distributions and MIME types", async () => {
   for (
     const [port, engine, filename] of [
-      [8100, "sj-1.1.0", "scramjet.all.js"],
-      [8200, "sj-2.0.0-alpha", "scramjet.all.js"],
-      [8300, "sj-2.0.2-alpha", "scramjet_bundled.js"],
-      [8400, "sj-2.0.67-alpha.2", "scramjet.js"],
-      [8500, "uv-3.2.10", "uv.bundle.js"],
+      [8100, "sj-1.1.0", "app.js"],
+      [8200, "sj-2.0.0-alpha", "app.js"],
+      [8300, "sj-2.0.2-alpha", "bundled.js"],
+      [8400, "sj-2.0.67-alpha.2", "main.js"],
+      [8500, "uv-3.2.10", "bundle.js"],
     ]
   ) {
     const base = `http://localhost:${port}`;
@@ -42,10 +42,10 @@ Deno.test("runtime host routing selects correct distributions and MIME types", a
     equal(asset.status, 200);
     equal(asset.headers.get("content-type"), "text/javascript; charset=utf-8");
   }
-  const wasm = await handle(new Request("http://localhost:8100/runtime/vendor/scramjet.wasm.wasm"));
+  const wasm = await handle(new Request("http://localhost:8100/runtime/vendor/app.wasm"));
   equal(wasm.status, 200);
   equal(wasm.headers.get("content-type"), "application/wasm");
-  const module = await handle(new Request("http://localhost:8100/runtime/vendor/epoxy/index.mjs"));
+  const module = await handle(new Request("http://localhost:8100/runtime/vendor/net-a/index.mjs"));
   equal(module.status, 200);
   equal(module.headers.get("content-type"), "text/javascript; charset=utf-8");
 });
@@ -95,7 +95,7 @@ Deno.test("optional site password gates the shell until the correct password unl
   }
 });
 Deno.test("runtime vendor assets cache at the browser while dynamic config stays fresh", async () => {
-  const vendor = await handle(new Request("http://localhost:8100/runtime/vendor/scramjet.all.js"));
+  const vendor = await handle(new Request("http://localhost:8100/runtime/vendor/app.js"));
   equal(vendor.status, 200);
   equal(vendor.headers.get("cache-control"), "public, max-age=3600");
   const config = await handle(new Request("http://localhost:8100/runtime/config.js"));
@@ -156,7 +156,7 @@ Deno.test("compact mode serves the shell and one runtime on a single origin", as
     equal(state.compact, true);
     equal(state.runtimes["sj-1.1.0"], "https://proxy.example.com");
     equal(Object.keys(state.runtimes).length, 1);
-    const vendor = await handle(new Request(base + "/runtime/vendor/scramjet.all.js"));
+    const vendor = await handle(new Request(base + "/runtime/vendor/app.js"));
     equal(vendor.status, 200);
     const health = await handle(new Request(base + "/health"));
     equal((await health.json()).role, "sj-1.1.0");

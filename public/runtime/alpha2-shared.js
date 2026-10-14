@@ -40,8 +40,8 @@ OjjyAlpha2.create = (cookieJar, sendSetCookie) => {
   };
   const scripts = [
     "/runtime/config.js",
-    "/runtime/vendor/baremux/index.js",
-    "/runtime/vendor/scramjet_bundled.js",
+    "/runtime/vendor/bridge/index.js",
+    "/runtime/vendor/bundled.js",
     "/runtime/bootstrap.js",
     "/runtime/alpha2-shared.js",
     "/runtime/alpha2-client.js",

@@ -149,6 +149,11 @@ For networks that block known hosting domains or multi-origin layouts, ojjyProxy
 architecture used by proxies that survive school and workplace filtering. Your multi-origin Deno
 setup stays as it is; this is an additional deployment shape.
 
+All runtime asset URLs are already **filter-hygienic**: no engine or transport file is named after
+the tools it embeds (`/runtime/vendor/app.js`, not `scramjet.all.js`), because school keyword
+filters block URLs containing known proxy-tool names. A unit test keeps those URLs neutral, and
+vendor downloads retry before surfacing an error that names filtering as a possible cause.
+
 On one VPS (Fly.io, Railway, Hetzner, any host permitting outbound TCP):
 
 1. **Frontend + runtime** — run the same Deno server with:
