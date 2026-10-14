@@ -20,9 +20,14 @@ try {
     await page.locator('input[name="password"]').fill(password);
     await page.locator("button[type=submit]").click();
   }
-  await expect(page.getByRole("heading", { name: "ojjyProxy", exact: true })).toBeVisible();
+  // Wait for the real shell (the login page shares the ojjyProxy heading) and
+  // for boot() to finish fetching configuration, so settings is ready to use.
+  await expect(page.locator("#home-input")).toBeVisible({ timeout: 30000 });
+  await expect(page.locator("#engine-select option").first()).toBeAttached({ timeout: 30000 });
   for (const engine of ENGINES) {
     await page.goto(base);
+    await expect(page.locator("#home-input")).toBeVisible({ timeout: 30000 });
+    await expect(page.locator("#engine-select option").first()).toBeAttached({ timeout: 30000 });
     await page.getByRole("button", { name: "customize", exact: true }).click();
     await page.locator("#engine-select").selectOption(engine.id);
     await page.getByRole("button", { name: "save settings", exact: true }).click();
