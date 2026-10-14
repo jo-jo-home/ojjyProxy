@@ -40,6 +40,10 @@ try {
       page.frameLocator(".runtime-frame:not([hidden])").frameLocator("#website").locator("body"),
     ).toContainText("This domain", { timeout: 60000 });
     console.log(`${engine.id}: PASS`);
+    // Return the tab to home before the next reload: saved tabs are restored
+    // lazily, and a restored browsing tab hides the home controls this script
+    // uses for the next engine.
+    await page.locator("#nav-home").click();
   }
   console.log("All engines loaded through the deployed relay.");
 } finally {
