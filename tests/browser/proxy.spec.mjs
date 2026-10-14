@@ -435,11 +435,8 @@ if (process.env.LIVE_PROXY_TESTS === "1") {
       await page.locator("#home-input").fill("https://example.com/");
       await page.locator("#home-form").evaluate((form) => form.requestSubmit());
       await expect(
-        page.frameLocator(".runtime-frame:not([hidden])").frameLocator("#website").getByRole(
-          "link",
-          { name: "Learn more" },
-        ),
-      ).toBeVisible({ timeout: 45000 });
+        page.frameLocator(".runtime-frame:not([hidden])").frameLocator("#website").locator("body"),
+      ).toContainText("This domain", { timeout: 45000 });
     });
   }
 }

@@ -34,12 +34,11 @@ try {
     await page.locator("#new-tab").click();
     await page.locator("#home-input").fill("https://example.com/");
     await page.locator("#home-form").evaluate((form) => form.requestSubmit());
+    // Current example.com serves a paragraph and a script, no heading or link,
+    // so assert on stable body text instead of page furniture.
     await expect(
-      page.frameLocator(".runtime-frame:not([hidden])").frameLocator("#website").getByRole(
-        "heading",
-        { name: "Example Domain" },
-      ),
-    ).toBeVisible({ timeout: 60000 });
+      page.frameLocator(".runtime-frame:not([hidden])").frameLocator("#website").locator("body"),
+    ).toContainText("This domain", { timeout: 60000 });
     console.log(`${engine.id}: PASS`);
   }
   console.log("All engines loaded through the deployed relay.");
