@@ -13,6 +13,10 @@ export function createStudio(api) {
   const form = $("settings-form");
   const section = document.createElement("section");
   section.className = "studio-section";
+  // Categories are declared per section (data-category) instead of matched by
+  // heading text, so display renames never silently move a settings section
+  // into the wrong category.
+  section.dataset.category = "Appearance";
   section.innerHTML =
     `<div class="studio-heading"><div><h3>Make it yours</h3><p class="field-note">Preview changes. Save to keep them, or close to cancel.</p></div><button type="button" id="reset-appearance">reset appearance</button></div>
     <h4>Workspace presets</h4><div id="preset-grid" class="preset-grid"></div>
@@ -34,6 +38,7 @@ export function createStudio(api) {
   // recreate the original long, unstructured customization page.
   const homeSection = document.createElement("section");
   homeSection.className = "studio-section";
+  homeSection.dataset.category = "Home";
   const homeHeading = [...section.querySelectorAll("h4")].find((node) =>
     node.textContent === "Home dashboard"
   );
@@ -66,6 +71,7 @@ export function createStudio(api) {
   }
   const connectionSection = document.createElement("section");
   connectionSection.innerHTML = '<h3>Browsing & connection</h3><div class="settings-grid"></div>';
+  connectionSection.dataset.category = "Connection";
   for (const name of ["search", "engine", "transport"]) {
     connectionSection.querySelector(".settings-grid").append(
       form.elements.namedItem(name).closest("label"),
@@ -124,16 +130,7 @@ export function createStudio(api) {
   form.before(toolbar);
   const categories = ["All", "Appearance", "Home", "Connection", "Privacy", "Data"];
   let category = "All";
-  const sectionCategory = (node) => {
-    const heading = node.querySelector("h3")?.textContent;
-    if (["Your Wisp server", "Browsing & connection"].includes(heading)) return "Connection";
-    if (heading === "Home dashboard") return "Home";
-    if (["Tab appearance", "More options", "Domain filtering", "Panic exit"].includes(heading)) {
-      return "Privacy";
-    }
-    if (heading === "Cache & data") return "Data";
-    return "Appearance";
-  };
+  const sectionCategory = (node) => node.dataset.category || "Appearance";
   function filter() {
     const query = $("settings-search").value.trim().toLowerCase();
     let count = 0;

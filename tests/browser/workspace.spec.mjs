@@ -52,6 +52,14 @@ test("settings categories, search, empty results and unsaved fields", async ({ p
   await page.getByRole("button", { name: "Privacy", exact: true }).click();
   await expect(field(page, "discreet")).toBeVisible();
   await expect(page.locator("#preset-grid")).not.toBeVisible();
+  // Regression: the relay section must live under Connection, not Appearance.
+  // Heading renames previously broke category matching by display text.
+  await page.getByRole("button", { name: "Connection", exact: true }).click();
+  await expect(field(page, "wisp")).toBeVisible();
+  await expect(field(page, "transport")).toBeVisible();
+  await page.getByRole("button", { name: "Appearance", exact: true }).click();
+  await expect(field(page, "wisp")).toBeHidden();
+  await expect(field(page, "theme")).toBeVisible();
   await page.locator("#settings-search").fill("relay endpoint");
   await expect(field(page, "wisp")).toBeVisible();
   await field(page, "wisp").fill("ws://localhost:9999/wisp/");
