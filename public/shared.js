@@ -34,6 +34,13 @@ export const ENGINES = [
     port: 8500,
     warm: ["/runtime/vendor/bundle.js"],
   },
+  {
+    id: "headless",
+    label: "Headless browser (remote isolation)",
+    short: "Headless",
+    port: 9100,
+    warm: [],
+  },
 ];
 export const SEARCH = {
   duckduckgo: "https://duckduckgo.com/?q=",

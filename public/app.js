@@ -392,7 +392,8 @@ function selectTab(id) {
   $("browser").hidden = !tab.url;
   $("address").value = tab.url;
   $("browser-error").hidden = !tab.error;
-  $("error-backup").hidden = !tab.error || settings.wisp === BACKUP_WISP;
+  $("error-backup").hidden = !tab.error || settings.wisp === BACKUP_WISP ||
+    tab.engine === "headless";
   $("error-message").textContent = tab.error;
   $("stall-notice").hidden = !tab.stalled;
   $("address-suggestions").hidden = true;
@@ -765,7 +766,8 @@ window.addEventListener("message", (event) => {
     $("browser-status").textContent = `${label(tab.engine)} · ${tab.state}`;
     $("nav-bookmark").classList.toggle("starred", bookmarks.some((item) => item.url === tab.url));
     $("browser-error").hidden = !tab.error;
-    $("error-backup").hidden = !tab.error || settings.wisp === BACKUP_WISP;
+    $("error-backup").hidden = !tab.error || settings.wisp === BACKUP_WISP ||
+      tab.engine === "headless";
     $("stall-notice").hidden = !tab.stalled;
     $("address-form").classList.toggle(
       "loading",

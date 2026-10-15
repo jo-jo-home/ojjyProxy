@@ -13,6 +13,7 @@ test("stable default and exact selectable releases", () => {
     "sj-2.0.2-alpha",
     "sj-2.0.67-alpha.2",
     "uv-3.2.10",
+    "headless",
   ]);
 });
 test("URLs, query strings, fragments and searches survive canonicalization", () => {
@@ -53,11 +54,17 @@ test("transport header normalization preserves repeated Set-Cookie", () => {
 test("the backup relay is a valid secure endpoint", () => {
   assert.equal(validateWisp(BACKUP_WISP, true), BACKUP_WISP);
 });
-test("every engine declares warm-up assets", () => {
-  assert.ok(
-    ENGINES.every((engine) => Array.isArray(engine.warm) && engine.warm.length > 0 &&
-      engine.warm.every((file) => file.startsWith("/runtime/vendor/"))),
-  );
+test("every rewriting engine declares warm-up assets; the headless engine needs none", () => {
+  for (const engine of ENGINES) {
+    if (engine.id === "headless") {
+      assert.deepEqual(engine.warm, [], "the headless engine loads no vendor bundles");
+      continue;
+    }
+    assert.ok(
+      Array.isArray(engine.warm) && engine.warm.length > 0 &&
+        engine.warm.every((file) => file.startsWith("/runtime/vendor/")),
+    );
+  }
 });
 test("theme table is ordered, unique and carries complete palettes", () => {
   assert.ok(THEMES.length >= 12, "at least twelve built-in themes");
@@ -105,16 +112,17 @@ test("runtime vendor URLs contain no filter-matched tool names", () => {
   // URL the runtime can request must stay neutral.
   const flagged = /scramjet|ultraviolet|baremux|epoxy|libcurl|mercury|titanium|uv\./i;
   const sources = [
-    ["../public/runtime/adapter.js"],
-    ["../public/runtime/sw.js"],
-    ["../public/runtime/alpha2-client.js"],
-    ["../public/runtime/alpha2-shared.js"],
-    ["../server.ts"],
+    ["../public/runtime/adapter.js", true],
+    ["../public/runtime/sw.js", true],
+    ["../public/runtime/alpha2-client.js", true],
+    ["../public/runtime/alpha2-shared.js", true],
+    ["../public/runtime/headless-client.js", false],
+    ["../server.ts", true],
   ];
-  for (const [file] of sources) {
+  for (const [file, required] of sources) {
     const text = readFileSync(new URL(file, import.meta.url), "utf8");
     const urls = [...text.matchAll(/\/runtime\/vendor\/[\w./-]+/g)].map((match) => match[0]);
-    assert.ok(urls.length > 0, `${file} exposes no vendor URLs`);
+    if (required) assert.ok(urls.length > 0, `${file} exposes no vendor URLs`);
     for (const url of urls) assert.ok(!flagged.test(url), `${file} leaks a tool name in ${url}`);
   }
   for (const engine of ENGINES) {

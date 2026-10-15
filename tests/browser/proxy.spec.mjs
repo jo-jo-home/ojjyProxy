@@ -117,7 +117,7 @@ test("blue home, full selector, bookmarks and responsive settings", async ({ pag
   await page.screenshot({ path: "test-results/home-desktop.png", animations: "disabled" });
   await page.getByRole("button", { name: "customize", exact: true }).click();
   await expect(page.locator("#engine-select")).toHaveValue("sj-1.1.0");
-  await expect(page.locator("#engine-select option")).toHaveCount(5);
+  await expect(page.locator("#engine-select option")).toHaveCount(6);
   // The quick relay buttons fill the form without saving.
   await page.getByRole("button", { name: "use backup relay" }).click();
   await expect(page.locator("#settings-form [name=wisp]")).toHaveValue(BACKUP_WISP);
@@ -443,7 +443,7 @@ test("floating navigation expands hovered segments without moving the pill or st
   await page.mouse.click(edge.x + initial.width + 8, edge.y + edge.height / 2);
   await expect(page.locator("#home")).toBeVisible();
 });
-for (const engine of ENGINES) {
+for (const engine of ENGINES.filter((item) => item.id !== "headless")) {
   test(`${engine.id} loads through the owned Wisp relay`, async ({ page }) => {
     const browserName = test.info().project.name;
     test.skip(
@@ -708,6 +708,80 @@ if (process.env.LIVE_PROXY_TESTS === "1") {
     });
   }
 }
+test("headless engine renders and drives a remote browser session", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "customize", exact: true }).click();
+  await page.locator("#engine-select").selectOption("headless");
+  await page.getByRole("button", { name: "save settings", exact: true }).click();
+  await page.locator("#new-tab").click();
+  await page.locator("#home-input").fill("http://localhost:8899/");
+  await page.locator("#home-form").evaluate((form) => form.requestSubmit());
+  // The remote page's real URL and title flow back through the shell protocol.
+  await expect(page.locator("#address")).toHaveValue("http://localhost:8899/", {
+    timeout: 30000,
+  });
+  await expect(page.locator("#browser-status")).toContainText("loaded", { timeout: 15000 });
+  const runtime = page.frameLocator(".runtime-frame:not([hidden])");
+  await expect(runtime.locator("canvas#screen")).toBeVisible();
+  // Pixels are genuinely painted, not a blank canvas.
+  const runtimeFrame = () =>
+    page.frames().find((frame) => frame.url().includes("/runtime/index.html"));
+  await expect
+    .poll(
+      () =>
+        runtimeFrame().evaluate(() => {
+          const canvas = document.getElementById("screen");
+          if (!canvas.width || !canvas.height) return 0;
+          const data = canvas.getContext("2d").getImageData(
+            0,
+            0,
+            canvas.width,
+            Math.min(200, canvas.height),
+          ).data;
+          const distinct = new Set();
+          for (let i = 0; i < data.length; i += 400) {
+            distinct.add(`${data[i]},${data[i + 1]},${data[i + 2]}`);
+          }
+          return distinct.size;
+        }),
+      { timeout: 15000 },
+    )
+    .toBeGreaterThan(3);
+  // The links channel reads the remote DOM through the service; clicking the
+  // link's box with a real mouse event follows it in the remote page.
+  const links = await runtimeFrame().evaluate(() => self.__headless.links());
+  const next = links.find((link) => link.text === "next page");
+  expect(next, "the remote page exposes the fixture link").toBeTruthy();
+  const centerX = Math.round(next.x + next.w / 2);
+  const centerY = Math.round(next.y + next.h / 2);
+  await runtimeFrame().evaluate(({ x, y }) => {
+    const canvas = document.getElementById("screen");
+    for (const type of ["pointerdown", "pointerup"]) {
+      canvas.dispatchEvent(
+        new PointerEvent(type, { clientX: x, clientY: y, button: 0, bubbles: true }),
+      );
+    }
+  }, { x: centerX, y: centerY });
+  await expect(page.locator("#address")).toHaveValue("http://localhost:8899/next", {
+    timeout: 20000,
+  });
+  // Back through the shell controls drives the remote browser's history.
+  await page.locator("#nav-back").click();
+  await expect(page.locator("#address")).toHaveValue("http://localhost:8899/", {
+    timeout: 20000,
+  });
+  // The blocklist reaches the service; a blocked navigation names the filter
+  // in the error card, and the relay-retry escape hatch stays hidden because
+  // this engine does not use the relay.
+  await page.locator("#nav-settings").click();
+  await page.locator("#settings-form [name=blocked]").fill("localhost");
+  await page.locator("#switch-engine").click();
+  await expect(page.locator("#error-message")).toContainText(
+    "blocked by your ojjyProxy domain filter",
+    { timeout: 30000 },
+  );
+  await expect(page.locator("#error-backup")).toBeHidden();
+});
 test("site password gate serves a login page and unlocks with the right password", async ({ page }) => {
   // A second server instance with SITE_PASSWORD set exercises the real login
   // flow end to end, without affecting the shared dev stack on port 8000.

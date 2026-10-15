@@ -200,19 +200,31 @@ async function initialize() {
     throw new Error("Open this runtime from its configured ojjyProxy website.");
   }
   if (config.engine === "headless") {
-    if (!config.remote && !/^(http|ws)s?:$/.test(location.protocol)) {
-      throw new Error("This runtime has no headless service URL configured.");
-    }
+    // Remote browser isolation: no service worker, no rewritten bundles, no
+    // relay. The service serves this very page and its config.
+    const endpoint = config.remote ||
+      (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/headless/";
     const client = await import("./headless-client.js");
     headlessSession = await client.startHeadless({
       website,
       message,
       params,
-      config,
+      config: { ...config, remote: endpoint },
       send,
       fail,
+      onUrl: (url) => {
+        lastUrl = url;
+      },
     });
-  } else if (config.engine === "sj-1.1.0" || config.engine === "sj-2.0.0-alpha") {
+    initialized = true;
+    send("ready", { engine: config.engine, isolated: crossOriginIsolated });
+    return;
+  }
+  if (!isSecureContext || !navigator.serviceWorker) {
+    throw new Error("Service workers require HTTPS (or localhost).");
+  }
+  config.wisp = validateWisp(params.get("wisp") || config.wisp, location.protocol === "https:");
+  if (config.engine === "sj-1.1.0" || config.engine === "sj-2.0.0-alpha") {
     await script("/runtime/vendor/app.js");
     const { ScramjetController } = $scramjetLoadController();
     controller = new ScramjetController({
@@ -321,6 +333,25 @@ window.addEventListener("message", async (event) => {
   if (!initialized) return;
   try {
     const { action, url } = event.data;
+    if (headlessSession) {
+      if (action === "navigate") {
+        const target = new URL(url);
+        if (!["http:", "https:"].includes(target.protocol)) {
+          throw new Error("Invalid website protocol.");
+        }
+        lastUrl = target.href;
+        message.hidden = true;
+        send("loading", { url: lastUrl });
+        headlessSession.navigate(lastUrl);
+      } else if (action === "back" || action === "forward") {
+        headlessSession[action]();
+      } else if (action === "reload") {
+        headlessSession.reload();
+      } else if (action === "clear-cache") {
+        headlessSession.clearCache();
+      }
+      return;
+    }
     if (action === "navigate") {
       const target = new URL(url);
       if (!["http:", "https:"].includes(target.protocol)) {
@@ -355,6 +386,7 @@ website.addEventListener("load", () => {
   }
 });
 setInterval(() => {
-  if (initialized && lastUrl) report();
+  // Headless sessions report their own URLs from the remote browser.
+  if (initialized && lastUrl && !headlessSession) report();
 }, 750);
 initialize().catch(fail);
