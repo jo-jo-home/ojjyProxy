@@ -49,10 +49,13 @@ const sessions = new Set();
 let browser = null;
 async function getBrowser() {
   if (browser?.isConnected()) return browser;
-  browser = await chromium.launch({
-    headless: true,
-    args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
-  });
+  const args = ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"];
+  try {
+    // Prefer the smaller headless-shell build when it is installed.
+    browser = await chromium.launch({ headless: true, channel: "chromium-headless-shell", args });
+  } catch {
+    browser = await chromium.launch({ headless: true, args });
+  }
   browser.on("disconnected", () => {
     browser = null;
   });
@@ -315,17 +318,32 @@ function attachSession(ws, hello) {
 }
 
 // Runtime pages this service hosts itself: the headless engine's "runtime
-// origin" is this service, so the shell embeds these files directly.
+// origin" is this service, so the shell embeds these files directly. Files
+// resolve in the repo layout (public/…) and in the flat container layout.
 const RUNTIME_FILES = new Map([
-  ["/runtime/index.html", ["../public/runtime/index.html", "text/html; charset=utf-8"]],
-  ["/runtime/adapter.js", ["../public/runtime/adapter.js", "text/javascript; charset=utf-8"]],
+  ["/runtime/index.html", ["runtime/index.html", "text/html; charset=utf-8"]],
+  ["/runtime/adapter.js", ["runtime/adapter.js", "text/javascript; charset=utf-8"]],
   [
     "/runtime/headless-client.js",
-    ["../public/runtime/headless-client.js", "text/javascript; charset=utf-8"],
+    ["runtime/headless-client.js", "text/javascript; charset=utf-8"],
   ],
-  ["/runtime/websocket.js", ["../public/runtime/websocket.js", "text/javascript; charset=utf-8"]],
-  ["/shared.js", ["../public/shared.js", "text/javascript; charset=utf-8"]],
+  ["/runtime/websocket.js", ["runtime/websocket.js", "text/javascript; charset=utf-8"]],
+  ["/shared.js", ["shared.js", "text/javascript; charset=utf-8"]],
 ]);
+async function readRuntimeFile(relative) {
+  const candidates = [
+    new URL(`../public/${relative}`, import.meta.url),
+    new URL(`./${relative}`, import.meta.url),
+  ];
+  for (const candidate of candidates) {
+    try {
+      return { data: await readFile(candidate), path: candidate };
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+  }
+  return null;
+}
 
 const server = createServer((request, response) => {
   const url = new URL(request.url, `http://localhost:${PORT}`);
@@ -356,18 +374,19 @@ const server = createServer((request, response) => {
   }
   const file = RUNTIME_FILES.get(url.pathname);
   if (file && request.method === "GET") {
-    readFile(new URL(file[0], import.meta.url))
-      .then((data) => {
+    readRuntimeFile(file[0])
+      .then((found) => {
+        if (!found) {
+          response.writeHead(404, { "content-type": "text/plain" });
+          response.end("Not found");
+          return;
+        }
         response.writeHead(200, {
           "content-type": file[1],
           "cache-control": "no-store",
           "cross-origin-resource-policy": "cross-origin",
         });
-        response.end(request.method === "HEAD" ? undefined : data);
-      })
-      .catch(() => {
-        response.writeHead(404, { "content-type": "text/plain" });
-        response.end("Not found");
+        response.end(request.method === "HEAD" ? undefined : found.data);
       });
     return;
   }
