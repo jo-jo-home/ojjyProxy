@@ -78,6 +78,16 @@ epoxy, libcurl, mercury, titanium).
 
 ## Phase 4 — complete the everyday browser experience · in progress
 
+**Workspace/UI expansion — implemented and locally verified:** six optional layouts, eighteen
+palettes, six reversible appearance presets, categorized/searchable settings, configurable home
+sections and shortcut density, a favourites bar, bounded lazy tab collections, and staged local
+wallpapers. The navy default and all runtime-origin boundaries remain intact. The consolidated
+deep browser run reports 68 passes and one existing WebKit alpha67 skip; `npm run check` passes
+7 server tests and 17 Node checks. Known Firefox worker and UV/WebKit deep-check exclusions
+remain; this is not a claim of complete engine compatibility. See the
+[implementation spec](.plans/proxy-workspace-ui-spec.md) and
+[verification/remaining limits](.plans/proxy-workspace-ui-verification.md).
+
 - Reorder/pin/duplicate tabs, reopen a closed tab and improve tab overflow/navigation boundaries.
 - Add bookmark folders, home filtering, real recently-opened sorting and richer history controls.
 - Refine screenshot parity: six navigation segments and adjacent bookmark action.

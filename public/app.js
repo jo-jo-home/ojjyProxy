@@ -1,9 +1,19 @@
 import {
-  BACKUP_WISP, COLOR_TOKENS, ENGINES, THEMES, hexLuminance, readableInk, toUrl, validateWisp,
+  BACKUP_WISP,
+  COLOR_TOKENS,
+  ENGINES,
+  hexLuminance,
+  readableInk,
+  THEMES,
+  toUrl,
+  validateWisp,
 } from "./shared.js";
+import { appearancePatch, HOME_DEFAULTS, LAYOUTS, sanitizeCollections } from "./workspace.js";
+import { createStudio } from "./studio.js";
 const $ = (id) => document.getElementById(id);
 const KEY = "ojjyproxy-app-v1";
 const defaults = {
+  ...HOME_DEFAULTS,
   engine: "sj-1.1.0",
   search: "duckduckgo",
   style: "pill",
@@ -37,6 +47,7 @@ try {
   saved = JSON.parse(localStorage.getItem(KEY) || "{}");
 } catch { /* Recover from corrupt local data. */ }
 let settings = { ...defaults, ...saved.settings };
+if (!LAYOUTS.includes(settings.layout)) settings.layout = defaults.layout;
 if (!ENGINES.some((engine) => engine.id === settings.engine)) settings.engine = defaults.engine;
 if (!THEMES.some((theme) => theme.id === settings.theme) && settings.theme !== "custom") {
   settings.theme = defaults.theme;
@@ -68,8 +79,13 @@ let bookmarks = Array.isArray(saved.bookmarks)
     },
   ];
 let visits = Array.isArray(saved.visits) ? saved.visits.slice(0, 500) : [];
+let collections = sanitizeCollections(saved.collections);
 let registry = {}, configuration, activeId, sort = "favorite", libraryType, toastTimer;
 const tabs = [], logs = [];
+let resolveBoot;
+const bootReady = new Promise((resolve) => {
+  resolveBoot = resolve;
+});
 function persist() {
   try {
     localStorage.setItem(
@@ -77,6 +93,7 @@ function persist() {
       JSON.stringify({
         settings,
         bookmarks,
+        collections,
         visits,
         tabs: settings.restore
           ? tabs.map(({ id, title, url, engine }) => ({ id, title, url, engine }))
@@ -177,7 +194,9 @@ function applyPalette() {
     ? { ...HUB_BLUE, ...(settings.customColors || {}) }
     : theme?.colors || HUB_BLUE;
   for (const token of COLOR_TOKENS) {
-    if (/^#[\da-f]{6}$/i.test(colors[token] || "")) root.style.setProperty("--" + token, colors[token]);
+    if (/^#[\da-f]{6}$/i.test(colors[token] || "")) {
+      root.style.setProperty("--" + token, colors[token]);
+    }
   }
   root.style.setProperty(
     "--glow",
@@ -218,7 +237,10 @@ function applyCursor() {
     css = cursorSelector(`url("${settings.customCursor.replace(/"/g, "")}") 0 0,auto`);
   } else if (settings.cursor === "crosshair") css = cursorSelector("crosshair");
   else if (shape) {
-    const svg = shape.svg(liveColor("--accent", HUB_BLUE.accent), liveColor("--accent-ink", "#ffffff"));
+    const svg = shape.svg(
+      liveColor("--accent", HUB_BLUE.accent),
+      liveColor("--accent-ink", "#ffffff"),
+    );
     css = cursorSelector(
       `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${shape.hotspot.join(" ")},auto`,
     );
@@ -238,7 +260,10 @@ function applyFont() {
   else root.style.removeProperty("--app-font");
 }
 function applyRadius() {
-  document.documentElement.style.setProperty("--radius", RADIUS_MAP[settings.radius] || RADIUS_MAP.medium);
+  document.documentElement.style.setProperty(
+    "--radius",
+    RADIUS_MAP[settings.radius] || RADIUS_MAP.medium,
+  );
 }
 function applyMotion() {
   document.body.dataset.motion = MOTION_LEVELS.includes(settings.motion) ? settings.motion : "full";
@@ -262,6 +287,8 @@ function syncCursorVisibility() {
   $("cursor-url-row").hidden = $("settings-form").elements.namedItem("cursor").value !== "custom";
 }
 function setTheme() {
+  // Commit a palette swap in one paint instead of firing every color transition.
+  document.documentElement.classList.add("theme-changing");
   applyPalette();
   applyAccent();
   applyFont();
@@ -269,9 +296,23 @@ function setTheme() {
   applyMotion();
   applyGlass();
   applyPattern();
-  document.body.dataset.layout = settings.layout === "sidebar" ? "sidebar" : "top";
+  document.body.dataset.layout = LAYOUTS.includes(settings.layout) ? settings.layout : "top";
+  $("tabs").setAttribute(
+    "aria-orientation",
+    ["sidebar", "rail"].includes(settings.layout) && innerWidth > 700 ? "vertical" : "horizontal",
+  );
+  $("sidebar-toggle").hidden = !["sidebar", "rail"].includes(settings.layout);
+  $("sidebar-toggle").setAttribute(
+    "aria-label",
+    settings.layout === "rail" ? "Expand tab sidebar" : "Collapse tab sidebar",
+  );
+  $("sidebar-toggle").setAttribute("aria-expanded", String(settings.layout === "sidebar"));
+  $("restore-workspace").hidden = settings.layout !== "focus";
   document.body.classList.toggle("performance", settings.performance);
-  $("browser").classList.toggle("docked", settings.style === "docked");
+  $("browser").classList.toggle(
+    "docked",
+    settings.style === "docked" || ["classic", "bottom"].includes(settings.layout),
+  );
   document.title = settings.title || "ojjyProxy";
   const icon = document.querySelector("link[rel=icon]");
   try {
@@ -282,10 +323,15 @@ function setTheme() {
     icon.href = "/icon.svg";
   }
   $("default-engine").textContent = ENGINES.find((engine) => engine.id === settings.engine).label;
-  // Discreet input masks what you type so shared-screen monitoring only sees dots.
+  // Cosmetic masking only: it does not conceal network activity or page content.
   for (const id of ["address", "home-input"]) {
     $(id).type = settings.discreet ? "password" : "text";
   }
+  renderDashboard();
+  void document.body.offsetHeight;
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => document.documentElement.classList.remove("theme-changing"))
+  );
 }
 function newTab(url = "", engine = settings.engine, select = true, restore = null) {
   if (tabs.length >= 20) return notify("Close a tab before opening more (20-tab limit).");
@@ -332,12 +378,11 @@ function selectTab(id) {
   );
   if (tab.url && !tab.iframe) startRuntime(tab, tab.url);
   renderTabs();
+  renderDashboard();
   persist();
 }
 function renderTabs() {
   const area = $("tabs");
-  const grew = tabs.length > renderedTabs;
-  renderedTabs = tabs.length;
   area.replaceChildren();
   for (const tab of tabs) {
     const group = document.createElement("div");
@@ -345,6 +390,24 @@ function renderTabs() {
     const select = button("", () => selectTab(tab.id), "tab-select");
     select.setAttribute("role", "tab");
     select.setAttribute("aria-selected", String(tab.id === activeId));
+    select.setAttribute("aria-label", tab.url ? tab.title : "new tab");
+    select.tabIndex = tab.id === activeId ? 0 : -1;
+    select.addEventListener("keydown", (event) => {
+      const vertical = ["sidebar", "rail"].includes(settings.layout) && innerWidth > 700;
+      const previousKey = vertical ? "ArrowUp" : "ArrowLeft";
+      const nextKey = vertical ? "ArrowDown" : "ArrowRight";
+      if (![previousKey, nextKey, "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      const index = tabs.indexOf(tab);
+      const target = event.key === "Home"
+        ? 0
+        : event.key === "End"
+        ? tabs.length - 1
+        : (index + (event.key === nextKey ? 1 : -1) + tabs.length) % tabs.length;
+      selectTab(tabs[target].id);
+      $("tabs").querySelector('[aria-selected="true"]').focus();
+    });
+    group.dataset.number = String(tabs.indexOf(tab) + 1);
     select.title = tab.url ? `${label(tab.engine)} · ${tab.title}` : "New tab";
     const mark = document.createElement("span");
     mark.className = "dot";
@@ -373,10 +436,9 @@ function renderTabs() {
     area.append(group);
   }
   // Only genuinely new tabs get the pop-in; re-renders of the same set stay still.
-  if (grew && area.lastElementChild) area.lastElementChild.classList.add("tab-in");
+  // Tab creation and switching are frequent and keyboard-triggerable: no motion.
   updateTabsList();
 }
-let renderedTabs = 0;
 function updateTabsList() {
   $("tabs-list").hidden = tabs.length < 8;
 }
@@ -656,6 +718,7 @@ window.addEventListener("message", (event) => {
         time: Date.now(),
       });
       visits = visits.slice(0, 500);
+      renderDashboard();
       tab.recordedUrl = tab.url;
       persist();
     }
@@ -720,6 +783,7 @@ function renderShortcuts() {
   sub.textContent = "a place worth coming back to";
   add.append(plus, text, sub);
   grid.append(add);
+  renderDashboard();
 }
 function dayLabel(time) {
   const date = new Date(time);
@@ -931,6 +995,7 @@ function renderLibrary() {
             button("clear day", () => {
               visits = visits.filter((entry) => dayLabel(entry.time) !== day);
               persist();
+              renderDashboard();
               renderLibrary();
             }, "day-clear"),
           );
@@ -1003,6 +1068,7 @@ function openSettings() {
   syncCustomColorsVisibility();
   syncCursorVisibility();
   $("settings-message").textContent = "changes apply when saved";
+  studio.open();
   openDialog($("settings"));
 }
 function readSettings() {
@@ -1010,6 +1076,7 @@ function readSettings() {
   const result = { ...settings };
   for (const key of Object.keys(defaults)) {
     const field = form.elements.namedItem(key);
+    if (!field) continue;
     result[key] = field.type === "checkbox" ? field.checked : field.value.trim();
   }
   if (result.wisp) result.wisp = validateWisp(result.wisp, location.protocol === "https:");
@@ -1051,25 +1118,50 @@ function readSettings() {
   if (!MOTION_LEVELS.includes(result.motion)) result.motion = defaults.motion;
   if (!GLASS_LEVELS.includes(result.glass)) result.glass = defaults.glass;
   if (!PATTERN_LEVELS.includes(result.pattern)) result.pattern = defaults.pattern;
+  if (!LAYOUTS.includes(result.layout)) result.layout = defaults.layout;
+  if (!["comfortable", "compact", "list"].includes(result.shortcutDensity)) {
+    result.shortcutDensity = defaults.shortcutDensity;
+  }
+  if (!["hidden", "home", "always"].includes(result.bookmarksBar)) result.bookmarksBar = "hidden";
+  result.wallpaperDim = String(Math.max(20, Math.min(85, Number(result.wallpaperDim) || 65)));
+  if (!["cover", "contain"].includes(result.wallpaperFit)) result.wallpaperFit = "cover";
   return result;
 }
-$("settings-form").addEventListener("submit", (event) => {
+let savingSettings = false;
+function lockSettings(value) {
+  savingSettings = value;
+  $("settings-form").inert = value;
+  document.querySelector('[form="settings-form"][type="submit"]').disabled = value;
+}
+$("settings-form").addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (savingSettings) return;
   try {
-    settings = readSettings();
+    const next = readSettings();
+    lockSettings(true);
+    await studio.commit();
+    settings = next;
     persist();
     setTheme();
+    lockSettings(false);
     closeDialog($("settings"));
     notify("Settings saved. Runtime changes apply when a tab is reopened.");
   } catch (error) {
     $("settings-message").textContent = error.message;
+  } finally {
+    lockSettings(false);
   }
 });
-$("switch-engine").addEventListener("click", () => {
+$("switch-engine").addEventListener("click", async () => {
+  if (savingSettings) return;
   try {
-    settings = readSettings();
+    const next = readSettings();
+    lockSettings(true);
+    await studio.commit();
+    settings = next;
     persist();
     setTheme();
+    lockSettings(false);
     const tab = active();
     if (!tab.url) {
       closeDialog($("settings"));
@@ -1083,6 +1175,8 @@ $("switch-engine").addEventListener("click", () => {
     navigate(target, tab);
   } catch (error) {
     $("settings-message").textContent = error.message;
+  } finally {
+    lockSettings(false);
   }
 });
 async function probeRelay(endpoint) {
@@ -1147,43 +1241,65 @@ $("settings-form").elements.namedItem("discreet").addEventListener("change", (ev
     $(id).type = event.target.checked ? "password" : "text";
   }
 });
+let keyboardInteraction = false;
+document.addEventListener("keydown", () => {
+  keyboardInteraction = true;
+}, true);
+document.addEventListener("pointerdown", () => {
+  keyboardInteraction = false;
+}, true);
+const dialogAnimations = new WeakMap();
+function animateDialog(node, closing) {
+  const previous = dialogAnimations.get(node);
+  const opacity = previous ? getComputedStyle(node).opacity : closing ? 1 : 0;
+  const transform = previous ? getComputedStyle(node).transform : closing ? "none" : "scale(.96)";
+  previous?.cancel();
+  const instant = keyboardInteraction || settings.performance || settings.motion === "off";
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches ||
+    settings.motion === "subtle";
+  if (instant) {
+    dialogAnimations.delete(node);
+    return null;
+  }
+  const animation = node.animate([
+    { opacity, transform: reduce ? "none" : transform },
+    { opacity: closing ? 0 : 1, transform: !reduce && closing ? "scale(.96)" : "none" },
+  ], {
+    duration: reduce ? 125 : closing ? 150 : 200,
+    easing: "cubic-bezier(.23,1,.32,1)",
+    fill: "both",
+  });
+  dialogAnimations.set(node, animation);
+  return animation;
+}
 function openDialog(node) {
-  // A dialog that is mid-exit must come back fully: drop the closing state.
-  node.classList.remove("dialog-closing");
-  node.removeAttribute("aria-hidden");
   node.inert = false;
-  node.showModal();
+  node.removeAttribute("aria-hidden");
+  if (!node.open) node.showModal();
+  const animation = animateDialog(node, false);
+  animation?.finished.then(() => {
+    if (dialogAnimations.get(node) === animation) {
+      animation.cancel();
+      dialogAnimations.delete(node);
+    }
+  }).catch(() => {});
 }
 function closeDialog(node) {
   if (!node?.open) return;
-  const still = node.classList.contains("dialog-closing");
-  node.classList.remove("dialog-closing");
-  if (
-    still || settings.performance || settings.motion === "off" ||
-    matchMedia("(prefers-reduced-motion: reduce)").matches
-  ) {
-    node.inert = false;
-    node.removeAttribute("aria-hidden");
-    node.close();
-    return;
-  }
-  // The exiting dialog keeps its visuals but stops being clickable, focusable
-  // or exposed to assistive technology, so nothing can match or use it mid-fade.
+  if (node.id === "settings" && savingSettings) return;
   node.inert = true;
   node.setAttribute("aria-hidden", "true");
-  node.classList.add("dialog-closing");
+  const animation = animateDialog(node, true);
   const finish = () => {
-    node.classList.remove("dialog-closing");
-    node.removeEventListener("animationend", finish);
+    if (animation && dialogAnimations.get(node) !== animation) return;
+    animation?.cancel();
+    dialogAnimations.delete(node);
     node.inert = false;
-    node.removeAttribute("aria-hidden");
     node.close();
+    node.removeAttribute("aria-hidden");
   };
-  node.addEventListener("animationend", finish);
-  // Safety net: if the animation is skipped or interrupted, still close.
-  setTimeout(() => {
-    if (node.open && node.classList.contains("dialog-closing")) finish();
-  }, 400);
+  if (animation) animation.finished.then(finish).catch(() => {});
+  else finish();
 }
 document.querySelectorAll("dialog").forEach((node) =>
   node.addEventListener("cancel", (event) => {
@@ -1219,7 +1335,10 @@ for (
 $("connection").addEventListener("click", () => openLibrary("status"));
 $("tabs-list").addEventListener("click", showTabsMenu);
 $("panic").addEventListener("click", panicExit);
-$("settings-form").elements.namedItem("theme").addEventListener("change", syncCustomColorsVisibility);
+$("settings-form").elements.namedItem("theme").addEventListener(
+  "change",
+  syncCustomColorsVisibility,
+);
 $("settings-form").elements.namedItem("cursor").addEventListener("change", syncCursorVisibility);
 $("reset-colors").addEventListener("click", () => {
   const form = $("settings-form");
@@ -1313,7 +1432,9 @@ $("cm-reopen").addEventListener("click", menuAction(() => reopenTab()));
 $("cm-close").addEventListener("click", menuAction(closeTab));
 document.addEventListener("click", (event) => {
   if (!event.target.closest("#context-menu")) hideTabMenu();
-  if (!event.target.closest("#tabs-overflow") && !event.target.closest("#tabs-list")) hideTabsMenu();
+  if (!event.target.closest("#tabs-overflow") && !event.target.closest("#tabs-list")) {
+    hideTabsMenu();
+  }
 });
 document.addEventListener("contextmenu", (event) => {
   if (!event.target.closest(".tab")) hideTabMenu();
@@ -1406,11 +1527,12 @@ $("clear-cache").addEventListener("click", () => {
 $("clear-history").addEventListener("click", () => {
   visits = [];
   persist();
+  renderDashboard();
   notify("Local app history cleared.");
 });
 $("export-data").addEventListener("click", () => {
   const blob = new Blob(
-    [JSON.stringify({ format: "ojjyproxy-v1", settings, bookmarks }, null, 2)],
+    [JSON.stringify({ format: "ojjyproxy-v1", settings, bookmarks, collections }, null, 2)],
     { type: "application/json" },
   );
   const url = URL.createObjectURL(blob);
@@ -1445,9 +1567,22 @@ $("import-data").addEventListener("change", async (event) => {
     for (const item of imported) {
       if (!bookmarks.some((entry) => entry.url === item.url)) bookmarks.push(item);
     }
+    const importedCollections = sanitizeCollections(data.collections);
+    for (const item of importedCollections) {
+      if (collections.length >= 12) break;
+      if (
+        !collections.some((entry) =>
+          entry.name === item.name && JSON.stringify(entry.tabs) === JSON.stringify(item.tabs)
+        )
+      ) {
+        collections.push({ ...item, id: crypto.randomUUID() });
+      }
+    }
     persist();
     renderShortcuts();
-    notify("Bookmarks imported. Review connection settings separately.");
+    notify(
+      "Bookmarks and collections imported. Review connection settings separately. Wallpapers stay local.",
+    );
   } catch (error) {
     notify(error.message);
   } finally {
@@ -1580,6 +1715,7 @@ document.addEventListener("keydown", (event) => {
     (active().url ? $("address") : $("home-input")).focus();
   }
   if (event.key === "Escape") {
+    if (settings.layout === "focus") restoreWorkspace();
     $("suggestions").hidden = true;
     $("address-suggestions").hidden = true;
     if (active().url) showControls(true);
@@ -1605,7 +1741,7 @@ function warmDefaultEngine() {
 }
 async function boot() {
   try {
-    const response = await fetch("/api/config");
+    const response = await fetch("/api/config", { signal: AbortSignal.timeout(6000) });
     if (!response.ok) throw new Error("Server settings could not be loaded.");
     configuration = await response.json();
     registry = configuration.runtimes;
@@ -1643,7 +1779,243 @@ async function boot() {
   }
   if (!tabs.length) newTab();
   else selectTab(tabs.some((tab) => tab.id === saved.activeId) ? saved.activeId : tabs[0].id);
+  resolveBoot();
 }
+// Workspace extensions are shell-only: appearance never reloads runtime frames.
+const sidebarToggle = button("", () => {
+  settings.layout = settings.layout === "rail" ? "sidebar" : "rail";
+  setTheme();
+  persist();
+}, "strip-button sidebar-toggle");
+sidebarToggle.id = "sidebar-toggle";
+sidebarToggle.innerHTML = '<svg aria-hidden="true"><use href="#i-chevron"/></svg>';
+$("new-tab").before(sidebarToggle);
+const bar = document.createElement("nav");
+bar.id = "bookmarks-bar";
+bar.setAttribute("aria-label", "Favorite bookmarks");
+bar.hidden = true;
+$("workspace").before(bar);
+const layoutSelect = $("settings-form").elements.namedItem("layout");
+layoutSelect.replaceChildren();
+for (
+  const [value, text] of [
+    ["top", "Original top tabs"],
+    ["sidebar", "Expanded sidebar"],
+    ["rail", "Compact icon rail"],
+    ["classic", "Classic browser"],
+    ["bottom", "Bottom controls"],
+    ["focus", "Focus workspace"],
+  ]
+) {
+  const option = document.createElement("option");
+  option.value = value;
+  option.textContent = text;
+  layoutSelect.append(option);
+}
+layoutSelect.closest("label").querySelector(".field-note").textContent =
+  "Sidebars become top tabs on small screens. Focus always has a restore button.";
+$("settings-form").elements.theme.closest("label").querySelector(".field-note").textContent =
+  "Eighteen complete palettes, or your own colors. Preview above; save to keep.";
+$("settings-form").elements.pattern.closest("label").querySelector(".field-note").textContent =
+  "Static, lightweight patterns behind the start page.";
+function restoreWorkspace() {
+  settings.layout = "top";
+  showControls(true);
+  setTheme();
+  persist();
+}
+$("restore-workspace").addEventListener("click", restoreWorkspace);
+window.addEventListener(
+  "resize",
+  () =>
+    $("tabs").setAttribute(
+      "aria-orientation",
+      ["sidebar", "rail"].includes(settings.layout) && innerWidth > 700 ? "vertical" : "horizontal",
+    ),
+);
+function renderDashboard() {
+  $("home").dataset.density = settings.shortcutDensity;
+  $("home").style.setProperty(
+    "--wallpaper-dim",
+    String(Math.max(.2, Math.min(.85, Number(settings.wallpaperDim) / 100 || .65))),
+  );
+  $("home").style.setProperty(
+    "--wallpaper-fit",
+    settings.wallpaperFit === "contain" ? "contain" : "cover",
+  );
+  $("home").querySelector(".home-heading").hidden = !settings.showWelcome;
+  $("home").querySelector(".shortcuts").hidden = !settings.showShortcuts;
+  $("recent-dashboard").hidden = !settings.showRecent || !settings.history;
+  $("collections-dashboard").hidden = !settings.showCollections;
+  const recent = $("recent-sites");
+  recent.replaceChildren();
+  const unique = visits.filter((item, index, all) =>
+    item && /^https?:\/\//.test(item.url || "") &&
+    all.findIndex((entry) => entry?.url === item.url) === index
+  ).slice(0, 6);
+  for (const item of unique) {
+    recent.append(button(item.title || item.url, () => navigate(item.url), "dashboard-link"));
+  }
+  if (!unique.length) {
+    const note = document.createElement("p");
+    note.className = "field-note";
+    note.textContent = "Your local visits will appear here after browsing.";
+    recent.append(note);
+  }
+  const shortcuts = $("collection-shortcuts");
+  shortcuts.replaceChildren();
+  for (const collection of collections) {
+    shortcuts.append(
+      button(
+        `${collection.name} · ${collection.tabs.length} tabs`,
+        () => restoreCollection(collection),
+        "dashboard-link",
+      ),
+    );
+  }
+  if (!collections.length) {
+    const note = document.createElement("p");
+    note.className = "field-note";
+    note.textContent = "Save your first set of website tabs with manage collections.";
+    shortcuts.append(note);
+  }
+  const bookmarksBar = $("bookmarks-bar");
+  if (!bookmarksBar) return;
+  bookmarksBar.replaceChildren();
+  bookmarksBar.hidden = settings.bookmarksBar === "hidden" ||
+    (settings.bookmarksBar === "home" && !!active()?.url);
+  document.body.dataset.bookmarks = String(!bookmarksBar.hidden);
+  for (const item of bookmarks.filter((item) => item.favorite).slice(0, 12)) {
+    const open = button(item.name, () => navigate(item.url));
+    open.title = item.url;
+    bookmarksBar.append(open);
+  }
+  if (!bookmarksBar.children.length) {
+    const note = document.createElement("span");
+    note.textContent = "Favorite a bookmark to pin it here.";
+    bookmarksBar.append(note);
+  }
+}
+async function restoreCollection(collection) {
+  // Collections can be opened while the initial config request is in flight.
+  // Resolve the runtime registry and restored tab count before choosing capacity.
+  await bootReady;
+  const capacity = 20 - tabs.length;
+  const available = collection.tabs.filter((item) => registry[item.engine]);
+  const selected = available.slice(0, capacity);
+  for (const item of selected) newTab(item.url, item.engine, false, { title: item.title });
+  notify(
+    `${selected.length} tabs added lazily.${
+      collection.tabs.length > selected.length
+        ? " Some tabs skipped: capacity or engine unavailable."
+        : " Select a tab to load it."
+    }`,
+  );
+}
+let deleteCollectionId = "";
+function renderCollections() {
+  const list = $("collection-list");
+  list.replaceChildren();
+  if (!collections.length) {
+    const empty = document.createElement("p");
+    empty.className = "field-note";
+    empty.textContent = "No collections yet. Open websites, then save the current tabs above.";
+    list.append(empty);
+  }
+  for (const collection of collections) {
+    const row = document.createElement("div");
+    row.className = "collection-row";
+    const name = document.createElement("input");
+    name.value = collection.name;
+    name.maxLength = 60;
+    name.setAttribute("aria-label", `Name of ${collection.name}`);
+    const count = document.createElement("small");
+    count.textContent = `${collection.tabs.length} tabs`;
+    row.append(
+      name,
+      count,
+      button("rename", () => {
+        if (!name.value.trim()) {
+          $("collection-message").textContent = "A collection needs a name.";
+          return;
+        }
+        collection.name = name.value.trim().slice(0, 60);
+        persist();
+        renderCollections();
+        renderDashboard();
+        $("collection-message").textContent = "Collection renamed.";
+      }),
+      button("open tabs", () => restoreCollection(collection)),
+      button(deleteCollectionId === collection.id ? "confirm remove" : "remove", () => {
+        if (deleteCollectionId !== collection.id) {
+          deleteCollectionId = collection.id;
+          renderCollections();
+          return;
+        }
+        collections = collections.filter((item) => item.id !== collection.id);
+        deleteCollectionId = "";
+        persist();
+        renderCollections();
+        renderDashboard();
+        $("collection-message").textContent = "Collection removed. Open tabs were not closed.";
+      }, "danger"),
+    );
+    list.append(row);
+  }
+}
+document.querySelectorAll(".manage-collections").forEach((node) =>
+  node.addEventListener("click", () => {
+    deleteCollectionId = "";
+    $("collection-message").textContent = "";
+    renderCollections();
+    openDialog($("collections-dialog"));
+  })
+);
+$("collection-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const name = $("collection-name").value.trim();
+  if (!name) return;
+  if (collections.length >= 12) {
+    $("collection-message").textContent =
+      "The 12-collection limit is reached. Remove a collection first.";
+    return;
+  }
+  const [collection] = sanitizeCollections([{
+    id: crypto.randomUUID(),
+    name,
+    tabs: tabs.filter((tab) => tab.url),
+  }]);
+  if (!collection) {
+    $("collection-message").textContent =
+      "Open at least one website tab before saving a collection.";
+    return;
+  }
+  collections.push(collection);
+  persist();
+  renderCollections();
+  renderDashboard();
+  $("collection-name").value = "";
+  $("collection-message").textContent = "Collection saved on this browser.";
+});
+const studio = createStudio({
+  defaults,
+  sync: syncCustomColorsVisibility,
+  preview(patch) {
+    const committed = settings;
+    settings = { ...settings, ...appearancePatch(patch) };
+    try {
+      setTheme();
+    } finally {
+      settings = committed;
+    }
+  },
+});
+$("settings").setAttribute("aria-label", "Settings");
+$("library").setAttribute("aria-labelledby", "library-title");
+$("settings").addEventListener("close", () => {
+  studio.cancel();
+  setTheme();
+});
 // The theme picker needs its options before boot()'s config fetch resolves,
 // in case settings is opened on a slow network.
 populateThemeOptions();

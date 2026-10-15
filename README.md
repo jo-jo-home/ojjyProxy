@@ -58,13 +58,23 @@ compatibility, browser features, advanced tools and release polish.
 - Five engine/version choices, five search providers, and your configurable relay endpoint with
   one-click **use default** / **use backup relay** switching.
 - Optional site password gate: set `SITE_PASSWORD` on the outer app to serve a password page first.
-- Appearance controls: twelve built-in themes — hub-blue, Midnight, Ocean, Lunar, Ember, Moss,
-  Rosewood, Graphite, and the light Daylight, Paper, Frost and Sakura palettes — plus a fully
-  custom eleven-color editor with shareable theme codes; an accent color that overrides any theme
-  (buttons re-pick readable ink automatically); corner-radius, motion-level, glass-blur and
-  home-background-pattern options; top-tabs or Lunar-style sidebar layout; twelve interface fonts;
-  eight cursor styles (accent-tinted shapes or a custom image); springy entrance, dialog, tab and
-  loading animations that respect reduced-motion, performance mode and the motion setting.
+- Appearance controls: eighteen built-in themes — the original twelve plus OLED, Polar slate, Mauve
+  mocha, Sandstone, Signal high contrast and Mint porcelain — plus a fully custom eleven-color
+  editor with shareable theme codes; an accent color that overrides any theme (buttons re-pick
+  readable ink automatically); corner-radius, motion-level, glass-blur and home-background-pattern
+  options; six workspace layouts; twelve interface fonts; eight cursor styles (accent-tinted shapes
+  or a custom image). Frequent actions and keyboard interactions are instant; occasional dialogs use
+  interruptible, reduced-motion-aware fades.
+- Searchable settings with All, Appearance, Home, Connection, Privacy and Data categories.
+- Six visual workspace presets and eighteen palette previews. Closing or pressing Escape cancels
+  previews; **save settings** commits them. Reset appearance never clears browsing data or changes
+  connection settings.
+- Optional dashboard sections, three shortcut densities, and a favourite-bookmarks bar.
+- Named tab collections: save, rename, append lazily, export/import and confirm removal. These save
+  URLs/engine choices, **not independent website sessions or cookie profiles**.
+- Local home wallpapers: validated PNG/JPEG/WebP, up to 3 MB and 16 million pixels, rasterized to at
+  most 1920×1080. Upload/removal is staged until Save. Stored separately in IndexedDB, never
+  uploaded, fetched remotely, or included in JSON exports. Browser storage can be evicted.
 - Panic exit: a recorded non-typing key or the ✕ strip button instantly replaces the site with a
   cover page of your choice.
 - Address-bar suggestions, bookmark folders, per-engine history chips, day clearing, a live
@@ -80,6 +90,27 @@ compatibility, browser features, advanced tools and release polish.
 Changing engine reopens the canonical address; it does **not** transfer cookies, unsaved forms, or
 live sockets. Existing tabs keep their selected engine when the default changes. Use **reload active
 page with selected engine** to explicitly switch.
+
+### Workspace layouts and controls
+
+Settings → Appearance offers Original top tabs, Expanded sidebar, Compact icon rail, Classic
+browser, Bottom controls and Focus workspace. Sidebar collapse/expand does not restart websites.
+Classic and Bottom reserve space for docked controls. Desktop sidebars become readable top tabs on
+screens at or below 700 px. Focus retains a visible **restore workspace** button; Escape exits when
+the shell has focus and no dialog is open. Websites in cross-origin frames cannot be expected to
+forward their keyboard events to this shell.
+
+Collections are available through **tab collections** on the home footer, or an optional dashboard
+section. Limits are 12 collections and 20 tabs per collection; the overall live-tab cap stays 20.
+Opening never closes your current tabs, and unavailable engines/capacity skips are reported. Exports
+include validated collections; imports merge bookmarks and collections but do not automatically
+apply imported traffic-routing settings. Wallpaper bytes remain local.
+
+Design research used the supplied Obsidian, Nebula, Daydream and Space source archives for
+interaction ideas, implemented with ojjyProxy's existing native controls and palette tokens; no
+third-party UI framework, branding assets, account integration or animation library was added.
+Research, interview decisions and acceptance criteria are in
+[the workspace implementation spec](.plans/proxy-workspace-ui-spec.md).
 
 ## Deploy the website from GitHub to Deno
 
@@ -144,8 +175,8 @@ deployment condition; the same Deno server can also run on a host that permits t
 
 ## Compact single-origin deployment (restrictive-network mode)
 
-For networks that block known hosting domains or multi-origin layouts, ojjyProxy can run as
-**one origin**: the shell, one runtime, and the Wisp relay all behind a single domain — the same
+For networks that block known hosting domains or multi-origin layouts, ojjyProxy can run as **one
+origin**: the shell, one runtime, and the Wisp relay all behind a single domain — the same
 architecture used by proxies that survive school and workplace filtering. Your multi-origin Deno
 setup stays as it is; this is an additional deployment shape.
 
@@ -164,18 +195,18 @@ WISP_URL=wss://your-domain.example.com/wisp/ \
 deno task start
 ```
 
-`SINGLE_RUNTIME=1` serves the shell at `/` and the Scramjet 1.1.0 runtime under `/runtime/` on
-this origin, and the engine selector honestly offers only the engine that is actually deployed.
+`SINGLE_RUNTIME=1` serves the shell at `/` and the Scramjet 1.1.0 runtime under `/runtime/` on this
+origin, and the engine selector honestly offers only the engine that is actually deployed.
 
 2. **Relay** — start the owned relay beside it: `npm run relay` (port 9000).
 
 3. **Reverse proxy** — terminate TLS and route the two services with the included
-[compact.Caddyfile.example](relay/compact.Caddyfile.example): everything to the Deno server,
-`/wisp/*` (WebSocket upgrades included) to the relay.
+   [compact.Caddyfile.example](relay/compact.Caddyfile.example): everything to the Deno server,
+   `/wisp/*` (WebSocket upgrades included) to the relay.
 
-4. **CDN front (recommended)** — create a free AWS CloudFront distribution pointing at your
-domain. The site becomes a random `*.cloudfront.net` address — a plain CDN subdomain with no
-proxy category, reachable on 443 only, with no separate relay host for a filter to flag.
+4. **CDN front (recommended)** — create a free AWS CloudFront distribution pointing at your domain.
+   The site becomes a random `*.cloudfront.net` address — a plain CDN subdomain with no proxy
+   category, reachable on 443 only, with no separate relay host for a filter to flag.
 
 Two client-side options help on monitored screens: **Discreet input** (Settings → More options)
 masks the address bar with dots, and the existing tab title/icon appearance controls rename what
@@ -225,8 +256,8 @@ The relay lives on your own server, so these small habits keep the whole site al
    ```
    The script recreates the container with the origins from `/opt/ojjyproxy/relay.env`.
 3. **DuckDNS keepalive** — a five-minute cron at `/opt/ojjyproxy/duckdns.sh` keeps the hostname
-   pointed at EC2 once `/opt/ojjyproxy/duckdns.token` contains your DuckDNS token. Preferably
-   assign an Elastic IP so the address never changes at all.
+   pointed at EC2 once `/opt/ojjyproxy/duckdns.token` contains your DuckDNS token. Preferably assign
+   an Elastic IP so the address never changes at all.
 4. **Origin lock (recommended)** — add a custom origin header (`X-Ojjy-Origin-Secret`) to the
    CloudFront distribution, then require it from Caddy so only your distribution can reach EC2.
 5. **Before your hosting credits expire** — move the relay (the same Docker image, or compact mode
@@ -247,45 +278,44 @@ npm run test:browser
 ```
 
 The browser suite runs its dev stack on **port 8700** (`DEV_PORT`), keeping it clear of port 8000,
-where a sibling project's dev server tends to respawn whenever the port is free. `npm run dev`
-for manual browsing still defaults to port 8000.
+where a sibling project's dev server tends to respawn whenever the port is free. `npm run dev` for
+manual browsing still defaults to port 8000.
 
 Browser tests cover all five engines through the owned relay using a controlled destination:
 rewritten JavaScript, dynamic fetch, client/server cookies, links, canonical address updates, back
 navigation, domain filtering, POST bodies, dedicated workers, destination WebSocket echo, redirects
 with query and fragment, the responsive interface, and the appearance studio (themes, accent
 override, radius, motion, glass, patterns, theme codes, fonts and cursors). The full deep matrix
-passes on **Chromium and Firefox**, and on **WebKit for stable, 2.0.0-alpha, and
-2.0.2-alpha with every deep check**. These are controlled-fixture checks, not a guarantee for all
-websites or browsers.
+passes on **Chromium and Firefox**, and on **WebKit for stable, 2.0.0-alpha, and 2.0.2-alpha with
+every deep check**. These are controlled-fixture checks, not a guarantee for all websites or
+browsers.
 
 Firefox required four compatibility fixes, each recorded in the build manifest:
 
 - **No cross-origin isolation anywhere.** Nothing in the stack uses SharedArrayBuffer. A
-  require-corp shell forced COEP onto proxied documents, and Firefox then rejected their
-  same-origin worker and blob scripts, so the shell ships without COEP and proxied documents
-  have the engine's COEP removed while keeping CORP/COOP for embedding.
-- **Buffered request bodies.** Firefox does not expose fetch bodies through `Request.body` and
-  drops stream bodies at `Request` construction. The runtime service worker buffers each
-  non-GET body once via `clone().arrayBuffer()` and shadows the getter; the vendored and
-  embedded BareMux clients and UV's bundled client carry bodies from the fetch init across the
-  worker boundary instead of re-reading that getter, with transfer lists restricted to
-  ArrayBuffers.
-- **Destination WebSocket bridging** for 2.0.0-alpha (Libcurl first, modern Epoxy fallback)
-  also covers Firefox, whose embedded socket hook previously sent nothing.
-- **Known gap:** dedicated workers rewritten through the `?dest=worker` service-worker path
-  load but never deliver their first message on Firefox for stable, 2.0.0-alpha,
-  2.0.67-alpha.2, and UV; 2.0.2-alpha workers (inline data URLs) work. Tests record this as an
-  annotation instead of asserting it.
+  require-corp shell forced COEP onto proxied documents, and Firefox then rejected their same-origin
+  worker and blob scripts, so the shell ships without COEP and proxied documents have the engine's
+  COEP removed while keeping CORP/COOP for embedding.
+- **Buffered request bodies.** Firefox does not expose fetch bodies through `Request.body` and drops
+  stream bodies at `Request` construction. The runtime service worker buffers each non-GET body once
+  via `clone().arrayBuffer()` and shadows the getter; the vendored and embedded BareMux clients and
+  UV's bundled client carry bodies from the fetch init across the worker boundary instead of
+  re-reading that getter, with transfer lists restricted to ArrayBuffers.
+- **Destination WebSocket bridging** for 2.0.0-alpha (Libcurl first, modern Epoxy fallback) also
+  covers Firefox, whose embedded socket hook previously sent nothing.
+- **Known gap:** dedicated workers rewritten through the `?dest=worker` service-worker path load but
+  never deliver their first message on Firefox for stable, 2.0.0-alpha, 2.0.67-alpha.2, and UV;
+  2.0.2-alpha workers (inline data URLs) work. Tests record this as an annotation instead of
+  asserting it.
 
 WebKit adds two engine-specific gaps, both recorded in the test matrix rather than hidden:
 
 - **2.0.67-alpha.2 is skipped on WebKit.** Its wasm rewriter emits arrow-comment chains
   (`=>/*scramtag*/{`) that WebKit's parser rejects, and its controller RPC hits a DataCloneError
-  inside the service worker. Both live in runtime-generated, wasm-driven code that a build
-  patch cannot reach.
-- **UV 3.2.10 POST bodies never deliver on WebKit.** Pages, scripts, cookies, and navigation
-  pass; the deep block is annotated and skipped there.
+  inside the service worker. Both live in runtime-generated, wasm-driven code that a build patch
+  cannot reach.
+- **UV 3.2.10 POST bodies never deliver on WebKit.** Pages, scripts, cookies, and navigation pass;
+  the deep block is annotated and skipped there.
 
 Optional external HTTPS smoke tests:
 

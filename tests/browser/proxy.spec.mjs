@@ -175,9 +175,7 @@ test("blue home, full selector, bookmarks and responsive settings", async ({ pag
   await expect(page).toHaveURL(/localhost:8899\/next/);
   await expect(page.getByRole("heading", { name: "next fixture page" })).toBeVisible();
 });
-test("appearance studio: themes, accent, radius, motion, glass, patterns, theme codes", async ({
-  page,
-}) => {
+test("appearance studio: themes, accent, radius, motion, glass, patterns, theme codes", async ({ page }) => {
   const form = page.locator("#settings-form");
   const save = page.getByRole("button", { name: "save settings", exact: true });
   const open = () => page.locator("#global-settings").click();
@@ -224,7 +222,9 @@ test("appearance studio: themes, accent, radius, motion, glass, patterns, theme 
   await expect(page.locator("body")).toHaveAttribute("data-motion", "off");
   expect(await varOnBody("--radius")).toBe("0px");
   expect(
-    await page.evaluate(() => getComputedStyle(document.querySelector("#home-settings")).borderRadius),
+    await page.evaluate(() =>
+      getComputedStyle(document.querySelector("#home-settings")).borderRadius
+    ),
   ).toBe("0px");
   expect(
     await page.evaluate(() => getComputedStyle(document.querySelector(".home")).animationName),
@@ -275,12 +275,57 @@ test("appearance studio: themes, accent, radius, motion, glass, patterns, theme 
     "Segoe Script",
   );
 });
+test("workspace layouts preserve a live proxied page and reserve docked control space", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("#home-input").fill("http://localhost:8899/");
+  await page.locator("#home-form").evaluate((form) => form.requestSubmit());
+  const runtime = page.frameLocator(".runtime-frame:not([hidden])");
+  const website = runtime.frameLocator("#website");
+  await expect(website.getByRole("heading", { name: "owned relay works" })).toBeVisible({
+    timeout: 25000,
+  });
+  await website.locator("body").evaluate((node) => {
+    node.dataset.workspaceMarker = "same-document";
+  });
+  const runtimeURL = await page.locator(".runtime-frame:not([hidden])").getAttribute("src");
+  for (const layout of ["sidebar", "rail", "classic", "bottom", "focus"]) {
+    await page.locator("#global-settings").click();
+    await page.locator('#settings-form [name="layout"]').selectOption(layout);
+    await page.getByRole("button", { name: "save settings", exact: true }).click();
+    await expect(page.locator("#settings")).not.toBeVisible();
+    await expect(website.locator("body")).toHaveAttribute("data-workspace-marker", "same-document");
+    await expect(page.locator(".runtime-frame:not([hidden])")).toHaveAttribute("src", runtimeURL);
+    if (["classic", "bottom"].includes(layout)) {
+      const frame = await page.locator("#runtime-frames").boundingBox();
+      const controls = await page.locator("#browser-controls").boundingBox();
+      expect(frame.height).toBeGreaterThan(200);
+      if (layout === "classic") {
+        expect(controls.y + controls.height).toBeLessThanOrEqual(frame.y + 1);
+      } else expect(frame.y + frame.height).toBeLessThanOrEqual(controls.y + 1);
+    }
+    await page.screenshot({
+      path: `test-results/workspace-${layout}-desktop.png`,
+      animations: "disabled",
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(website.getByRole("heading", { name: "owned relay works" })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      390,
+    );
+    await page.screenshot({
+      path: `test-results/workspace-${layout}-mobile.png`,
+      animations: "disabled",
+    });
+    await page.setViewportSize({ width: 1280, height: 720 });
+    if (layout === "focus") await page.locator("#restore-workspace").click();
+  }
+});
 for (const engine of ENGINES) {
   test(`${engine.id} loads through the owned Wisp relay`, async ({ page }) => {
     const browserName = test.info().project.name;
     test.skip(
       browserName === "webkit" && engine.id === "sj-2.0.67-alpha.2",
-      "alpha67 on WebKit: the wasm rewriter emits arrow-comment chains WebKit refuses to parse, and the controller RPC hits DataCloneError; tracked in ROADMAP Phase 3",
+      "alpha67 on WebKit: observed parsing failures and controller DataCloneError; exact cause unresolved, tracked in ROADMAP Phase 3",
     );
     const errors = [];
     const diagnostics = [];
