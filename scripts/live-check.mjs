@@ -36,16 +36,33 @@ try {
     await page.locator("#home-form").evaluate((form) => form.requestSubmit());
     // Current example.com serves a paragraph and a script, no heading or link,
     // so assert on stable body text instead of page furniture.
-    await expect(
-      page.frameLocator(".runtime-frame:not([hidden])").frameLocator("#website").locator("body"),
-    ).toContainText("This domain", { timeout: 60000 });
+    if (engine.id === "headless") {
+      await expect(page.locator("#browser-status")).toContainText("loaded", { timeout: 60000 });
+      const runtime = page.frameLocator(".runtime-frame:not([hidden])");
+      await expect(runtime.locator("canvas#screen")).toBeVisible();
+      await expect.poll(() => runtime.locator("canvas#screen").evaluate((canvas) => {
+        if (!canvas.width || !canvas.height) return 0;
+        const pixels = canvas.getContext("2d").getImageData(
+          0, 0, canvas.width, Math.min(200, canvas.height),
+        ).data;
+        const colors = new Set();
+        for (let i = 0; i < pixels.length; i += 400) {
+          colors.add(`${pixels[i]},${pixels[i + 1]},${pixels[i + 2]}`);
+        }
+        return colors.size;
+      }), { timeout: 30000 }).toBeGreaterThan(3);
+    } else {
+      await expect(
+        page.frameLocator(".runtime-frame:not([hidden])").frameLocator("#website").locator("body"),
+      ).toContainText("This domain", { timeout: 60000 });
+    }
     console.log(`${engine.id}: PASS`);
     // Return the tab to home before the next reload: saved tabs are restored
     // lazily, and a restored browsing tab hides the home controls this script
     // uses for the next engine.
     await page.locator("#nav-home").click();
   }
-  console.log("All engines loaded through the deployed relay.");
+  console.log("All engines loaded through their deployed transports.");
 } finally {
   await browser.close();
 }

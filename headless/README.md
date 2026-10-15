@@ -54,10 +54,11 @@ mkdir -p /opt/ojjyproxy-headless
 # the runtime files (public/runtime/*, public/shared.js) into
 # /opt/ojjyproxy-headless/ preserving that layout, then:
 cat > /opt/ojjyproxy-headless/Dockerfile <<'EOF'
-FROM mcr.microsoft.com/playwright:v1.58.2-noble
+FROM node:22-bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package.json ./
-RUN npm install --omit=dev
+RUN npm install --omit=dev && npx playwright-core install --with-deps chromium-headless-shell && rm -rf /root/.npm
 COPY server.mjs guards.mjs ./
 COPY runtime ./runtime
 COPY shared.js ./shared.js
@@ -69,8 +70,8 @@ cd /opt/ojjyproxy-headless && sudo docker build -t ojjyproxy-headless .
 sudo docker run -d --name ojjyproxy-headless --restart unless-stopped \
   -p 127.0.0.1:9100:9100 \
   -e HEADLESS_PARENT=https://ojjyproxy.ojjy.deno.net \
-  -e HEADLESS_SELF=https://ojjyproxy-jonas-relay.duckdns.org \
-  -e HEADLESS_ORIGINS=https://ojjyproxy-jonas-relay.duckdns.org \
+  -e HEADLESS_SELF=https://d11zfagyzg18az.cloudfront.net \
+  -e HEADLESS_ORIGINS=https://d11zfagyzg18az.cloudfront.net \
   ojjyproxy-headless
 ```
 
@@ -100,9 +101,20 @@ Finally, register the engine on the website: add the origin to
   "sj-2.0.2-alpha": "https://ojjyproxy-alpha2.ojjy.deno.net",
   "sj-2.0.67-alpha.2": "https://ojjyproxy-alpha67.ojjy.deno.net",
   "uv-3.2.10": "https://ojjyproxy-uv.ojjy.deno.net",
-  "headless": "https://ojjyproxy-jonas-relay.duckdns.org"
+  "headless": "https://d11zfagyzg18az.cloudfront.net"
 }
 ```
+
+Use the browser-facing CloudFront origin in both places, not the DuckDNS
+origin locked behind CloudFront's secret header. The WebSocket `Origin` is
+the runtime iframe's origin, not the parent Deno shell's origin. Merely seeing
+the engine in the menu does not verify this configuration: select it and load
+an HTTPS page, then confirm that the remote canvas paints and navigation works.
+
+The origin allowlist is not user authentication (non-browser clients can forge
+it). The shell password gate does not authenticate direct headless connections.
+Do not treat this deployment as a hardened public browser service; authenticated
+session admission and DNS-aware private-network egress protection remain needed.
 
 ## Protocol
 
