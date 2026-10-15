@@ -78,6 +78,12 @@ epoxy, libcurl, mercury, titanium).
 
 ## Phase 4 — complete the everyday browser experience · in progress
 
+**Screenshot-driven UI refinement:** a quieter search-first home, compact shortcut cards, folded
+settings galleries, token-driven feedback, expanding desktop floating-navigation segments, and eight
+generated backgrounds alongside saved custom images. See the
+[quiet modern UI spec](.plans/quiet-modern-ui-spec.md) and
+[test evidence / remaining limits](.plans/quiet-modern-ui-verification.md).
+
 **Workspace/UI expansion — implemented and locally verified:** six optional layouts, eighteen
 palettes, six reversible appearance presets, categorized/searchable settings, configurable home
 sections and shortcut density, a favourites bar, bounded lazy tab collections, and staged local

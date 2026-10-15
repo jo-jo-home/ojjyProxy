@@ -1,6 +1,16 @@
 import { ENGINES } from "./shared.js";
 
 export const LAYOUTS = ["top", "sidebar", "rail", "classic", "bottom", "focus"];
+export const BACKGROUNDS = [
+  { id: "plain", label: "Clean", detail: "Just your palette" },
+  { id: "aurora", label: "Aurora", detail: "Soft northern light" },
+  { id: "dusk", label: "Dusk", detail: "A warm horizon" },
+  { id: "mesh", label: "Mesh", detail: "Layered color fields" },
+  { id: "stars", label: "Night sky", detail: "A quiet constellation" },
+  { id: "coast", label: "Coast", detail: "Cool, open water" },
+  { id: "grid", label: "Blueprint", detail: "A fine geometric grid" },
+  { id: "dots", label: "Dot paper", detail: "An understated texture" },
+];
 export const HOME_DEFAULTS = {
   showWelcome: true,
   showShortcuts: true,
@@ -10,6 +20,7 @@ export const HOME_DEFAULTS = {
   bookmarksBar: "hidden",
   wallpaperDim: "65",
   wallpaperFit: "cover",
+  backgroundSource: "image",
 };
 export const APPEARANCE_KEYS = [
   "theme",

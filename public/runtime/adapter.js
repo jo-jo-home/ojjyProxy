@@ -7,6 +7,7 @@ const config = self.PROXY_CONFIG;
 const website = document.getElementById("website");
 const message = document.getElementById("message");
 let frame, controller, lastUrl = "", initialized = false;
+let headlessSession = null;
 function captureLinks() {
   if (params.get("capture") !== "true") return;
   try {
@@ -92,6 +93,36 @@ async function worker() {
   );
   return navigator.serviceWorker.controller;
 }
+async function applyPolicy(domains) {
+  let port, changed;
+  try {
+    await timeout(
+      new Promise((resolve, reject) => {
+        changed = () => {
+          port?.close();
+          const channel = new MessageChannel();
+          port = channel.port1;
+          port.onmessage = ({ data }) => {
+            if (data?.source !== "ojjy-policy-applied") return;
+            if (data.ok) resolve();
+            else reject(new Error(data.message || "The domain policy could not be saved."));
+          };
+          navigator.serviceWorker.controller?.postMessage({ source: "ojjy-policy", domains }, [
+            channel.port2,
+          ]);
+        };
+        // An existing deployment may still have the previous worker. Resend to
+        // the replacement when it claims this page instead of accepting no ACK.
+        navigator.serviceWorker.addEventListener("controllerchange", changed);
+        changed();
+      }),
+      "The service worker did not confirm the domain policy. Reload this runtime.",
+    );
+  } finally {
+    navigator.serviceWorker.removeEventListener("controllerchange", changed);
+    port?.close();
+  }
+}
 async function bareMux() {
   await script("/runtime/vendor/bridge/index.js");
   const connection = new BareMux.BareMuxConnection("/runtime/vendor/bridge/worker.js");
@@ -168,11 +199,20 @@ async function initialize() {
   if (parentOrigin !== config.parentOrigin || !token) {
     throw new Error("Open this runtime from its configured ojjyProxy website.");
   }
-  if (!isSecureContext || !navigator.serviceWorker) {
-    throw new Error("Service workers require HTTPS (or localhost).");
-  }
-  config.wisp = validateWisp(params.get("wisp") || config.wisp, location.protocol === "https:");
-  if (config.engine === "sj-1.1.0" || config.engine === "sj-2.0.0-alpha") {
+  if (config.engine === "headless") {
+    if (!config.remote && !/^(http|ws)s?:$/.test(location.protocol)) {
+      throw new Error("This runtime has no headless service URL configured.");
+    }
+    const client = await import("./headless-client.js");
+    headlessSession = await client.startHeadless({
+      website,
+      message,
+      params,
+      config,
+      send,
+      fail,
+    });
+  } else if (config.engine === "sj-1.1.0" || config.engine === "sj-2.0.0-alpha") {
     await script("/runtime/vendor/app.js");
     const { ScramjetController } = $scramjetLoadController();
     controller = new ScramjetController({
@@ -269,11 +309,8 @@ async function initialize() {
     await worker();
   } else throw new Error("Unknown engine version.");
   if (frame?.addEventListener) frame.addEventListener("urlchange", () => report());
+  await applyPolicy((params.get("blocked") || "").split(/\s+/).filter(Boolean));
   initialized = true;
-  navigator.serviceWorker.controller.postMessage({
-    source: "ojjy-policy",
-    domains: (params.get("blocked") || "").split(/\s+/).filter(Boolean),
-  });
   send("ready", { engine: config.engine, isolated: crossOriginIsolated });
 }
 window.addEventListener("message", async (event) => {

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   APPEARANCE_KEYS,
   appearancePatch,
+  BACKGROUNDS,
   HOME_DEFAULTS,
   LAYOUTS,
   prepareWallpaper,
@@ -10,6 +11,26 @@ import {
   sanitizeCollections,
 } from "../public/workspace.js";
 import { THEMES } from "../public/shared.js";
+
+test("background choices are bounded appearance-only IDs and preserve existing image mode", () => {
+  assert.equal(BACKGROUNDS.length, 8);
+  assert.equal(new Set(BACKGROUNDS.map((item) => item.id)).size, 8);
+  assert.equal(HOME_DEFAULTS.backgroundSource, "image");
+  assert.ok(APPEARANCE_KEYS.includes("backgroundSource"));
+  for (const background of BACKGROUNDS) {
+    assert.match(background.id, /^[a-z]+$/);
+    assert.match(background.label, /\S/);
+    assert.match(background.detail, /\S/);
+    assert.deepEqual(
+      appearancePatch({
+        pattern: background.id,
+        backgroundSource: "theme",
+        wisp: "wss://not-an-appearance-setting",
+      }),
+      { pattern: background.id, backgroundSource: "theme" },
+    );
+  }
+});
 
 test("workspace presets only change supported appearance fields", () => {
   assert.equal(LAYOUTS.length, 6);

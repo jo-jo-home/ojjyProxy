@@ -55,6 +55,8 @@ compatibility, browser features, advanced tools and release polish.
 - Exact default hub palette: `#0a1628`, `#111d2e`, `#162a42`, `#1e3a5f`, `#2e6bbd`.
 - App-managed tabs, lazy session restoration, real destination addresses, back/forward/reload.
 - Desktop floating pill controls, optional docked controls, responsive mobile layout and settings.
+- Search-first home with compact destination cards, a native sort picker, and secondary tools under
+  **More**. The immediate **Exit** action is separate from tab controls.
 - Five engine/version choices, five search providers, and your configurable relay endpoint with
   one-click **use default** / **use backup relay** switching.
 - Optional site password gate: set `SITE_PASSWORD` on the outer app to serve a password page first.
@@ -68,15 +70,19 @@ compatibility, browser features, advanced tools and release polish.
 - Searchable settings with All, Appearance, Home, Connection, Privacy and Data categories.
 - Six visual workspace presets and eighteen palette previews. Closing or pressing Escape cancels
   previews; **save settings** commits them. Reset appearance never clears browsing data or changes
-  connection settings.
+  connection settings. Preview galleries are folded by default and expand for matching searches.
 - Optional dashboard sections, three shortcut densities, and a favourite-bookmarks bar.
 - Named tab collections: save, rename, append lazily, export/import and confirm removal. These save
   URLs/engine choices, **not independent website sessions or cookie profiles**.
 - Local home wallpapers: validated PNG/JPEG/WebP, up to 3 MB and 16 million pixels, rasterized to at
   most 1920×1080. Upload/removal is staged until Save. Stored separately in IndexedDB, never
   uploaded, fetched remotely, or included in JSON exports. Browser storage can be evicted.
-- Panic exit: a recorded non-typing key or the ✕ strip button instantly replaces the site with a
-  cover page of your choice.
+- **Backgrounds** on home opens image/theme customization directly: eight static scenes (Clean,
+  Aurora, Dusk, Mesh, Night sky, Coast, Blueprint, Dot paper) follow your palette. Switching to a
+  generated scene preserves your saved image; switch **Background source** back to My image to use
+  it again. Like other appearance settings, previews are reversible until saved.
+- Panic exit: a recorded non-typing key or the labelled **Exit** header button instantly replaces
+  the site with a cover page of your choice.
 - Address-bar suggestions, bookmark folders, per-engine history chips, day clearing, a live
   connection status panel, stalled-page notices, middle-click tab close and a tab overflow menu.
 - Bookmark creation, editing, favorites, shortcuts, import/export, local history, local suggestions.
@@ -100,6 +106,12 @@ screens at or below 700 px. Focus retains a visible **restore workspace** button
 the shell has focus and no dialog is open. Websites in cross-origin frames cannot be expected to
 forward their keyboard events to this shell.
 
+On a fine-pointer desktop with Full motion, hovering a floating navigation segment expands it while
+its neighbours share the remaining space. The pill's outer width and the icons' proportions stay
+constant; rapid pointer changes retarget a 150 ms transform transition. Docked controls,
+mobile/touch input, keyboard navigation, reduced/subtle motion and performance mode remain static.
+Notifications use reversible fades; a newer notification cancels an earlier one's pending hide.
+
 Collections are available through **tab collections** on the home footer, or an optional dashboard
 section. Limits are 12 collections and 20 tabs per collection; the overall live-tab cap stays 20.
 Opening never closes your current tabs, and unavailable engines/capacity skips are reported. Exports
@@ -110,7 +122,9 @@ Design research used the supplied Obsidian, Nebula, Daydream and Space source ar
 interaction ideas, implemented with ojjyProxy's existing native controls and palette tokens; no
 third-party UI framework, branding assets, account integration or animation library was added.
 Research, interview decisions and acceptance criteria are in
-[the workspace implementation spec](.plans/proxy-workspace-ui-spec.md).
+[the workspace implementation spec](.plans/proxy-workspace-ui-spec.md). The later screenshot-driven
+simplification, expanding navigation and background choices are specified in
+[the quiet modern UI spec](.plans/quiet-modern-ui-spec.md).
 
 ## Deploy the website from GitHub to Deno
 

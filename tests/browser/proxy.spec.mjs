@@ -4,8 +4,10 @@ import { WebSocketServer } from "ws";
 import { spawn } from "node:child_process";
 import { BACKUP_WISP, ENGINES, THEMES } from "../../public/shared.js";
 let fixture, sockets, socketHost;
+let fixtureRequests = 0;
 test.beforeAll(async () => {
   fixture = http.createServer((request, response) => {
+    fixtureRequests++;
     // Route by pathname: proxy hooks append query parameters (for example
     // "?dest=worker"), and exact-match URLs fell through to the HTML handler.
     // Firefox refuses worker scripts served as text/html, so this also fixes
@@ -287,6 +289,17 @@ test("workspace layouts preserve a live proxied page and reserve docked control 
   await website.locator("body").evaluate((node) => {
     node.dataset.workspaceMarker = "same-document";
   });
+  const newTabPosition = (await page.locator("#new-tab").boundingBox()).x;
+  await website.locator("body").evaluate(() => {
+    document.title = "A much longer website title that must not move the new-tab target";
+  });
+  await expect(page.locator("#tabs .tab-title")).toContainText("A much longer website title");
+  expect((await page.locator("#new-tab").boundingBox()).x).toBeCloseTo(newTabPosition, 0);
+  await website.locator("body").evaluate(() => {
+    document.title = "short";
+  });
+  await expect(page.locator("#tabs .tab-title")).toHaveText("short");
+  expect((await page.locator("#new-tab").boundingBox()).x).toBeCloseTo(newTabPosition, 0);
   const runtimeURL = await page.locator(".runtime-frame:not([hidden])").getAttribute("src");
   for (const layout of ["sidebar", "rail", "classic", "bottom", "focus"]) {
     await page.locator("#global-settings").click();
@@ -319,6 +332,116 @@ test("workspace layouts preserve a live proxied page and reserve docked control 
     await page.setViewportSize({ width: 1280, height: 720 });
     if (layout === "focus") await page.locator("#restore-workspace").click();
   }
+});
+test("runtime waits for committed domain policy before its first navigation", async ({ page }) => {
+  await page.addInitScript(() => {
+    if (location.pathname !== "/runtime/index.html" || typeof ServiceWorker === "undefined") return;
+    const original = ServiceWorker.prototype.postMessage;
+    ServiceWorker.prototype.postMessage = function (message, transfer) {
+      if (message?.source === "ojjy-policy") {
+        self.__policyDeliveryDelayed = true;
+        setTimeout(() => original.call(this, message, transfer), 200);
+        return;
+      }
+      return original.call(this, message, transfer);
+    };
+  });
+  await page.goto("/");
+  await page.locator("#global-settings").click();
+  await page.locator('#settings-form [name="blocked"]').fill("localhost");
+  await page.getByRole("button", { name: "save settings", exact: true }).click();
+  await expect(page.locator("#settings")).not.toBeVisible();
+  const before = fixtureRequests;
+  await page.locator("#home-input").fill("http://localhost:8899/");
+  await page.locator("#home-form").evaluate((form) => form.requestSubmit());
+  const runtime = page.frameLocator(".runtime-frame:not([hidden])");
+  await expect(
+    runtime.frameLocator("#website").getByText(
+      "This domain is blocked by your ojjyProxy domain filter.",
+      { exact: true },
+    ),
+  ).toBeVisible({ timeout: 25000 });
+  expect(await runtime.locator("body").evaluate(() => self.__policyDeliveryDelayed)).toBe(true);
+  expect(fixtureRequests).toBe(before);
+});
+test("floating navigation expands hovered segments without moving the pill or stretching icons", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("#home-input").fill("http://localhost:8899/");
+  await page.locator("#home-form").evaluate((form) => form.requestSubmit());
+  await expect(
+    page.frameLocator(".runtime-frame:not([hidden])").frameLocator("#website").getByRole(
+      "heading",
+      { name: "owned relay works" },
+    ),
+  ).toBeVisible({ timeout: 25000 });
+  const pill = page.locator(".navigation-pill");
+  const home = page.locator("#nav-home");
+  const initial = await home.boundingBox();
+  const bounds = await pill.boundingBox();
+  const iconWidth = (await home.locator("svg").boundingBox()).width;
+  await page.screenshot({ path: "test-results/navigation-rest.png", animations: "disabled" });
+  await home.hover();
+  await expect.poll(async () => (await home.boundingBox()).width).toBeGreaterThan(
+    initial.width * 1.45,
+  );
+  await expect.poll(async () =>
+    Math.abs((await home.locator("svg").boundingBox()).width - iconWidth)
+  ).toBeLessThan(.5);
+  const grown = await home.boundingBox();
+  expect((await pill.boundingBox()).width).toBeCloseTo(bounds.width, 0);
+  expect(grown.x).toBeGreaterThanOrEqual(bounds.x);
+  await page.screenshot({ path: "test-results/navigation-expanded.png", animations: "disabled" });
+  await page.locator("#nav-settings").hover();
+  await expect.poll(async () => (await page.locator("#nav-settings").boundingBox()).width)
+    .toBeGreaterThan(initial.width * 1.45);
+  await page.mouse.move(5, 650);
+  await expect.poll(async () => Math.abs((await home.boundingBox()).width - initial.width))
+    .toBeLessThan(.5);
+  await home.hover();
+  await home.focus();
+  await page.keyboard.press("Tab");
+  expect(
+    await home.evaluate((node) => {
+      const transform = getComputedStyle(node).transform;
+      return transform === "none" || new DOMMatrixReadOnly(transform).isIdentity;
+    }),
+  ).toBe(true);
+  expect(await home.evaluate((node) => node.getAnimations().length)).toBe(0);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.mouse.move(5, 650);
+  await home.hover();
+  expect(await home.evaluate((node) => getComputedStyle(node).transform)).toBe("none");
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.mouse.move(5, 650);
+  await home.dispatchEvent("pointerenter", { pointerType: "touch" });
+  expect(await home.evaluate((node) => getComputedStyle(node).transform)).toBe("none");
+  await page.locator("#global-settings").click();
+  await page.locator('#settings-form [name="style"]').selectOption("docked");
+  await page.getByRole("button", { name: "save settings", exact: true }).click();
+  await expect(page.locator("#settings")).not.toBeVisible();
+  await home.hover();
+  expect(await home.evaluate((node) => getComputedStyle(node).transform)).toBe("none");
+  await page.locator("#global-settings").click();
+  await page.locator('#settings-form [name="style"]').selectOption("pill");
+  await page.locator('#settings-form [name="performance"]').check();
+  await page.getByRole("button", { name: "save settings", exact: true }).click();
+  await expect(page.locator("#settings")).not.toBeVisible();
+  await home.hover();
+  expect(await home.evaluate((node) => getComputedStyle(node).transform)).toBe("none");
+  await page.locator("#global-settings").click();
+  await page.locator('#settings-form [name="performance"]').uncheck();
+  await page.getByRole("button", { name: "save settings", exact: true }).click();
+  await expect(page.locator("#settings")).not.toBeVisible();
+  await page.locator("#address").focus();
+  await home.hover();
+  await expect.poll(async () => (await home.boundingBox()).width).toBeGreaterThan(
+    initial.width * 1.45,
+  );
+  const edge = await home.boundingBox();
+  // This point is inside expanded Home but outside its resting hit rectangle.
+  // Pointer focus must not collapse the target between mouse-down and mouse-up.
+  await page.mouse.click(edge.x + initial.width + 8, edge.y + edge.height / 2);
+  await expect(page.locator("#home")).toBeVisible();
 });
 for (const engine of ENGINES) {
   test(`${engine.id} loads through the owned Wisp relay`, async ({ page }) => {

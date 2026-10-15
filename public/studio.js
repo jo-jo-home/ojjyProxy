@@ -2,6 +2,7 @@ import { COLOR_TOKENS, THEMES } from "./shared.js";
 import {
   APPEARANCE_KEYS,
   appearancePatch,
+  BACKGROUNDS,
   prepareWallpaper,
   PRESETS,
   wallpaperStore,
@@ -13,7 +14,7 @@ export function createStudio(api) {
   const section = document.createElement("section");
   section.className = "studio-section";
   section.innerHTML =
-    `<div class="studio-heading"><div><span class="eyebrow">appearance studio</span><h3>Your space, your pace.</h3><p class="field-note">Preview a workspace. Save to keep it; close to return to your current look.</p></div><button type="button" id="reset-appearance">reset appearance</button></div>
+    `<div class="studio-heading"><div><h3>Make it yours</h3><p class="field-note">Preview changes. Save to keep them, or close to cancel.</p></div><button type="button" id="reset-appearance">reset appearance</button></div>
     <h4>Workspace presets</h4><div id="preset-grid" class="preset-grid"></div>
     <h4>Color palettes</h4><div id="palette-grid" class="palette-grid"></div>
     <h4>Home dashboard</h4><div class="settings-grid toggles">
@@ -42,6 +43,27 @@ export function createStudio(api) {
   while (homeHeading.nextSibling) homeSection.append(homeHeading.nextSibling);
   homeHeading.remove();
   section.after(homeSection);
+  for (
+    const [id, name, count] of [["preset-grid", "Workspace presets", 6], [
+      "palette-grid",
+      "Color palettes",
+      18,
+    ]]
+  ) {
+    const grid = $(id);
+    grid.previousElementSibling.remove();
+    const details = document.createElement("details");
+    details.className = "studio-disclosure";
+    details.id = id + "-disclosure";
+    const summary = document.createElement("summary");
+    const label = document.createElement("span");
+    label.textContent = name;
+    const badge = document.createElement("small");
+    badge.textContent = `${count} choices`;
+    summary.append(label, badge);
+    grid.before(details);
+    details.append(summary, grid);
+  }
   const connectionSection = document.createElement("section");
   connectionSection.innerHTML = '<h3>Browsing & connection</h3><div class="settings-grid"></div>';
   for (const name of ["search", "engine", "transport"]) {
@@ -50,6 +72,50 @@ export function createStudio(api) {
     );
   }
   homeSection.after(connectionSection);
+  const sourceLabel = document.createElement("label");
+  sourceLabel.innerHTML =
+    'Background source<select name="backgroundSource"><option value="image">My image (when uploaded)</option><option value="theme">Background theme</option></select><span class="field-note">Your image stays saved when you switch to a theme.</span>';
+  const backgroundTitle = document.createElement("h4");
+  backgroundTitle.textContent = "Background themes";
+  const backgroundGrid = document.createElement("div");
+  backgroundGrid.id = "background-grid";
+  backgroundGrid.className = "background-grid";
+  const backgroundNote = document.createElement("p");
+  backgroundNote.className = "field-note";
+  backgroundNote.textContent =
+    "Lightweight, static backgrounds that follow your palette. No downloads, video, or continuous animation.";
+  homeSection.querySelector("h3").after(
+    sourceLabel,
+    backgroundTitle,
+    backgroundNote,
+    backgroundGrid,
+  );
+  const patternSelect = form.elements.namedItem("pattern");
+  patternSelect.replaceChildren();
+  for (const background of BACKGROUNDS) {
+    const option = document.createElement("option");
+    option.value = background.id;
+    option.textContent = background.label;
+    patternSelect.append(option);
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "background-card";
+    card.dataset.background = background.id;
+    const image = document.createElement("span");
+    image.className = "background-preview";
+    image.dataset.scene = background.id;
+    image.setAttribute("aria-hidden", "true");
+    const name = document.createElement("strong");
+    name.textContent = background.label;
+    const description = document.createElement("small");
+    description.textContent = background.detail;
+    card.append(image, name, description);
+    card.addEventListener(
+      "click",
+      () => fill({ pattern: background.id, backgroundSource: "theme" }),
+    );
+    backgroundGrid.append(card);
+  }
 
   const toolbar = document.createElement("div");
   toolbar.className = "settings-toolbar";
@@ -81,6 +147,15 @@ export function createStudio(api) {
       if (!item.hidden) count++;
     }
     $("settings-empty").hidden = count > 0;
+    if (query) {
+      for (const details of form.querySelectorAll(".studio-disclosure")) {
+        if (
+          details.textContent.toLowerCase().includes(query) ||
+          (details.id.startsWith("palette") && /theme|color|palette/.test(query)) ||
+          (details.id.startsWith("preset") && /workspace|preset|layout/.test(query))
+        ) details.open = true;
+      }
+    }
     for (const button of $("settings-categories").children) {
       button.setAttribute("aria-pressed", String(!query && button.textContent === category));
     }
@@ -112,6 +187,15 @@ export function createStudio(api) {
     return patch;
   }
   function updateSelected() {
+    for (const card of $("background-grid").children) {
+      card.setAttribute(
+        "aria-pressed",
+        String(
+          form.elements.backgroundSource.value === "theme" &&
+            card.dataset.background === form.elements.pattern.value,
+        ),
+      );
+    }
     for (const button of $("palette-grid").children) {
       button.setAttribute(
         "aria-pressed",
@@ -221,6 +305,7 @@ export function createStudio(api) {
       if (version !== generation) return;
       pending = blob;
       showImage(blob);
+      fill({ backgroundSource: "image" });
       $("wallpaper-message").textContent =
         "Image ready locally. Save settings to keep it, or close to cancel.";
     } catch (error) {
@@ -234,10 +319,20 @@ export function createStudio(api) {
     busy = false;
     pending = null;
     showImage(null);
+    fill({ backgroundSource: "theme" });
     $("wallpaper-message").textContent = "Removal staged. Save settings to keep this change.";
   });
   return {
+    showCategory(name) {
+      category = categories.includes(name) ? name : "All";
+      $("settings-search").value = "";
+      filter();
+      form.scrollTop = 0;
+    },
     open() {
+      form.querySelectorAll(".studio-disclosure").forEach((node) => {
+        node.open = false;
+      });
       category = "All";
       $("settings-search").value = "";
       filter();

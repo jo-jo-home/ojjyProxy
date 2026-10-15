@@ -42,17 +42,28 @@ const policyReady = new Promise((resolve, reject) => {
 });
 self.addEventListener("message", (event) => {
   if (event.data?.source !== "ojjy-policy" || !Array.isArray(event.data.domains)) return;
-  event.waitUntil(policyReady.then(() => {
-    domains = event.data.domains.filter((host) =>
-      typeof host === "string" && /^[a-z\d.-]+$/i.test(host)
-    ).map((host) => host.toLowerCase());
-    const tx = policyDb.transaction("policy", "readwrite");
-    tx.objectStore("policy").put(domains, "domains");
-    return new Promise((resolve, reject) => {
-      tx.oncomplete = resolve;
-      tx.onerror = () => reject(tx.error);
-    });
-  }));
+  event.waitUntil(
+    policyReady.then(() => {
+      domains = event.data.domains.filter((host) =>
+        typeof host === "string" && /^[a-z\d.-]+$/i.test(host)
+      ).map((host) => host.toLowerCase());
+      const tx = policyDb.transaction("policy", "readwrite");
+      tx.objectStore("policy").put(domains, "domains");
+      return new Promise((resolve, reject) => {
+        tx.oncomplete = resolve;
+        tx.onerror = tx.onabort = () =>
+          reject(tx.error || new Error("Domain policy transaction aborted."));
+      });
+    }).then(() => {
+      event.ports?.[0]?.postMessage({ source: "ojjy-policy-applied", ok: true });
+    }).catch((error) => {
+      event.ports?.[0]?.postMessage({
+        source: "ojjy-policy-applied",
+        ok: false,
+        message: String(error.message || error),
+      });
+    }),
+  );
 });
 function blocked(request) {
   if (!domains.length) return false;

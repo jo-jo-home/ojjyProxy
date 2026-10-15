@@ -24,6 +24,7 @@ test("workspace previews cancel, save, preserve connections and reset appearance
   });
   await field(page, "wisp").fill("ws://localhost:9000/wisp/");
   const before = (await state(page)).settings;
+  await page.locator("#preset-grid-disclosure > summary").click();
   await page.locator('[data-preset="study"]').click();
   await expect(page.locator("body")).toHaveAttribute("data-layout", "sidebar");
   expect((await state(page)).settings.theme).toBe(before.theme);
@@ -31,6 +32,7 @@ test("workspace previews cancel, save, preserve connections and reset appearance
   await expect(page.locator("#settings")).not.toBeVisible();
   await expect(page.locator("body")).toHaveAttribute("data-layout", "top");
   await open(page);
+  await page.locator("#preset-grid-disclosure > summary").click();
   await page.locator('[data-preset="desk"]').click();
   await save(page);
   expect((await state(page)).settings.wisp).toBe(before.wisp);
@@ -312,6 +314,7 @@ test("collections respect tab capacity and skip unavailable engines without load
 test("palette gallery previews every theme without persisting and supports pointer cancellation", async ({ page }) => {
   await page.goto("/");
   await open(page);
+  await page.locator("#palette-grid-disclosure > summary").click();
   const ids = await page.locator("#palette-grid button").evaluateAll((nodes) =>
     nodes.map((node) => node.dataset.theme)
   );

@@ -8,7 +8,13 @@ import {
   toUrl,
   validateWisp,
 } from "./shared.js";
-import { appearancePatch, HOME_DEFAULTS, LAYOUTS, sanitizeCollections } from "./workspace.js";
+import {
+  appearancePatch,
+  BACKGROUNDS,
+  HOME_DEFAULTS,
+  LAYOUTS,
+  sanitizeCollections,
+} from "./workspace.js";
 import { createStudio } from "./studio.js";
 const $ = (id) => document.getElementById(id);
 const KEY = "ojjyproxy-app-v1";
@@ -106,12 +112,34 @@ function persist() {
   }
 }
 function notify(text) {
-  $("toast").textContent = text;
-  $("toast").hidden = false;
+  const toast = $("toast");
+  toast.textContent = text;
   clearTimeout(toastTimer);
+  clearTimeout(toastHideTimer);
+  toast.hidden = false;
+  // Establish the current opacity before retargeting; repeated notices do not
+  // replay an entrance or inherit an older notice's delayed hide callback.
+  void toast.offsetWidth;
+  toast.dataset.visible = "true";
   toastTimer = setTimeout(() => {
-    $("toast").hidden = true;
+    delete toast.dataset.visible;
+    toastHideTimer = setTimeout(() => {
+      toast.hidden = true;
+    }, transitionTime(toast));
   }, 4200);
+}
+let toastHideTimer;
+function transitionTime(node) {
+  return Math.max(
+    0,
+    ...getComputedStyle(node).transitionDuration.split(",").map((value) =>
+      Number.parseFloat(value) * (value.trim().endsWith("ms") ? 1 : 1000)
+    ),
+  );
+}
+function tokenDuration(name) {
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return Number.parseFloat(value) * (value.endsWith("ms") ? 1 : 1000);
 }
 function log(type, message) {
   logs.unshift({
@@ -154,7 +182,7 @@ const FONT_STACKS = {
 const RADIUS_MAP = { sharp: "0px", soft: "8px", medium: "12px", round: "16px", extra: "22px" };
 const MOTION_LEVELS = ["full", "subtle", "off"];
 const GLASS_LEVELS = ["none", "subtle", "full"];
-const PATTERN_LEVELS = ["plain", "dots", "grid", "aurora"];
+const PATTERN_LEVELS = BACKGROUNDS.map((item) => item.id);
 // Accent-tinted cursor shapes, drawn as SVG data URIs with the live palette.
 const CURSOR_SHAPES = {
   dot: {
@@ -287,6 +315,7 @@ function syncCursorVisibility() {
   $("cursor-url-row").hidden = $("settings-form").elements.namedItem("cursor").value !== "custom";
 }
 function setTheme() {
+  resetNavigationExpansion(true);
   // Commit a palette swap in one paint instead of firing every color transition.
   document.documentElement.classList.add("theme-changing");
   applyPalette();
@@ -763,7 +792,10 @@ function renderShortcuts() {
     name.textContent = item.name;
     const domain = document.createElement("small");
     domain.textContent = new URL(item.url).hostname;
-    card.append(icon, name, domain);
+    const copy = document.createElement("span");
+    copy.className = "shortcut-copy";
+    copy.append(name, domain);
+    card.append(icon, copy);
     if (item.favorite) {
       const star = document.createElement("span");
       star.className = "card-star";
@@ -772,17 +804,6 @@ function renderShortcuts() {
     }
     grid.append(card);
   }
-  const add = button("", () => editBookmark(), "shortcut-card add-card");
-  const plus = document.createElement("span");
-  plus.className = "site-icon";
-  plus.innerHTML = '<svg aria-hidden="true"><use href="#i-plus"/></svg>';
-  const text = document.createElement("span");
-  text.className = "site-name";
-  text.textContent = "add a shortcut";
-  const sub = document.createElement("small");
-  sub.textContent = "a place worth coming back to";
-  add.append(plus, text, sub);
-  grid.append(add);
   renderDashboard();
 }
 function dayLabel(time) {
@@ -1118,6 +1139,7 @@ function readSettings() {
   if (!MOTION_LEVELS.includes(result.motion)) result.motion = defaults.motion;
   if (!GLASS_LEVELS.includes(result.glass)) result.glass = defaults.glass;
   if (!PATTERN_LEVELS.includes(result.pattern)) result.pattern = defaults.pattern;
+  if (!["image", "theme"].includes(result.backgroundSource)) result.backgroundSource = "image";
   if (!LAYOUTS.includes(result.layout)) result.layout = defaults.layout;
   if (!["comfortable", "compact", "list"].includes(result.shortcutDensity)) {
     result.shortcutDensity = defaults.shortcutDensity;
@@ -1244,11 +1266,67 @@ $("settings-form").elements.namedItem("discreet").addEventListener("change", (ev
 let keyboardInteraction = false;
 document.addEventListener("keydown", () => {
   keyboardInteraction = true;
+  if (navigationExpanded) resetNavigationExpansion(true);
 }, true);
 document.addEventListener("pointerdown", () => {
   keyboardInteraction = false;
 }, true);
 const dialogAnimations = new WeakMap();
+// The floating pill keeps its outer bounds. Only segment transforms change;
+// width/flex/layout are never animated, and icons counter-scale independently.
+const navigationButtons = [...document.querySelectorAll(".navigation-pill button")];
+let navigationExpanded = false;
+const hoverPointer = matchMedia("(hover: hover) and (pointer: fine)");
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+function resetNavigationExpansion(instant = false) {
+  navigationExpanded = false;
+  document.querySelector(".navigation-pill").dataset.expanding = instant ? "false" : "true";
+  for (const button of navigationButtons) {
+    button.style.transform = "none";
+    button.querySelector("svg").style.transform = "none";
+  }
+}
+function expandNavigation(index) {
+  if (
+    !hoverPointer.matches || reducedMotion.matches || innerWidth <= 700 ||
+    settings.performance || settings.motion !== "full" || $("browser").classList.contains("docked")
+  ) return;
+  const pill = document.querySelector(".navigation-pill");
+  navigationExpanded = true;
+  pill.dataset.expanding = "true";
+  const total = pill.clientWidth;
+  const ordinary = total / navigationButtons.length;
+  const expanded = ordinary * 1.5;
+  const neighbour = (total - expanded) / (navigationButtons.length - 1);
+  let left = 0;
+  navigationButtons.forEach((button, current) => {
+    const width = current === index ? expanded : neighbour;
+    const scale = width / button.offsetWidth;
+    button.style.transform = `translateX(${left - button.offsetLeft}px) scaleX(${scale})`;
+    button.querySelector("svg").style.transform = `scaleX(${1 / scale})`;
+    left += width;
+  });
+}
+navigationButtons.forEach((button, index) =>
+  button.addEventListener("pointerenter", (event) => {
+    if (event.pointerType === "mouse") expandNavigation(index);
+  })
+);
+document.querySelector(".navigation-pill").addEventListener(
+  "pointerleave",
+  () => resetNavigationExpansion(),
+);
+document.querySelector(".navigation-pill").addEventListener(
+  "focusin",
+  () => {
+    // Pointer focus occurs between down/up. Do not collapse an enlarged target
+    // out from under an edge click; only keyboard focus should reset immediately.
+    if (keyboardInteraction) resetNavigationExpansion(true);
+  },
+);
+window.addEventListener("resize", () => resetNavigationExpansion(true));
+reducedMotion.addEventListener("change", () => resetNavigationExpansion(true));
+hoverPointer.addEventListener("change", () => resetNavigationExpansion(true));
 function animateDialog(node, closing) {
   const previous = dialogAnimations.get(node);
   const opacity = previous ? getComputedStyle(node).opacity : closing ? 1 : 0;
@@ -1265,8 +1343,8 @@ function animateDialog(node, closing) {
     { opacity, transform: reduce ? "none" : transform },
     { opacity: closing ? 0 : 1, transform: !reduce && closing ? "scale(.96)" : "none" },
   ], {
-    duration: reduce ? 125 : closing ? 150 : 200,
-    easing: "cubic-bezier(.23,1,.32,1)",
+    duration: reduce ? 125 : tokenDuration(closing ? "--dur-fast" : "--dur-med"),
+    easing: getComputedStyle(document.documentElement).getPropertyValue("--ease-out").trim(),
     fill: "both",
   });
   dialogAnimations.set(node, animation);
@@ -1311,18 +1389,24 @@ document.querySelectorAll("[data-close]").forEach((node) =>
   node.addEventListener("click", () => closeDialog(node.closest("dialog")))
 );
 document.querySelectorAll("[data-panel]").forEach((node) =>
-  node.addEventListener("click", () => openLibrary(node.dataset.panel))
-);
-$("open-help").addEventListener("click", () => openDialog($("help")));
-document.querySelectorAll("[data-sort]").forEach((node) =>
   node.addEventListener("click", () => {
-    sort = node.dataset.sort;
-    document.querySelectorAll("[data-sort]").forEach((button) =>
-      button.setAttribute("aria-pressed", String(button === node))
-    );
-    renderShortcuts();
+    $("home-more").open = false;
+    openLibrary(node.dataset.panel);
   })
 );
+$("open-help").addEventListener("click", () => {
+  $("home-more").open = false;
+  openDialog($("help"));
+});
+$("shortcut-sort").addEventListener("change", (event) => {
+  sort = event.target.value;
+  renderShortcuts();
+});
+$("add-shortcut").addEventListener("click", () => editBookmark());
+$("home-backgrounds").addEventListener("click", () => {
+  openSettings();
+  studio.showCategory("Home");
+});
 for (
   const id of [
     "global-settings",
@@ -1431,6 +1515,7 @@ $("cm-close-others").addEventListener(
 $("cm-reopen").addEventListener("click", menuAction(() => reopenTab()));
 $("cm-close").addEventListener("click", menuAction(closeTab));
 document.addEventListener("click", (event) => {
+  if (!event.target.closest("#home-more")) $("home-more").open = false;
   if (!event.target.closest("#context-menu")) hideTabMenu();
   if (!event.target.closest("#tabs-overflow") && !event.target.closest("#tabs-list")) {
     hideTabsMenu();
@@ -1715,6 +1800,7 @@ document.addEventListener("keydown", (event) => {
     (active().url ? $("address") : $("home-input")).focus();
   }
   if (event.key === "Escape") {
+    $("home-more").open = false;
     if (settings.layout === "focus") restoreWorkspace();
     $("suggestions").hidden = true;
     $("address-suggestions").hidden = true;
@@ -1727,6 +1813,17 @@ document.addEventListener("keydown", (event) => {
   }
 });
 function warmDefaultEngine() {
+  const schedule = () => {
+    if (settings.performance) return;
+    if ("requestIdleCallback" in window) requestIdleCallback(prefetch, { timeout: 2000 });
+    else setTimeout(prefetch, 0);
+  };
+  // Do not start multi-megabyte warm-up downloads on the home page's load path.
+  // The interface should become interactive before optional speculative work.
+  if (document.readyState === "complete") schedule();
+  else window.addEventListener("load", schedule, { once: true });
+}
+function prefetch() {
   // Prefetch the default engine's biggest pinned bundles while the user is
   // still on home, so the first navigation starts with warm caches.
   const engine = ENGINES.find((item) => item.id === settings.engine);
@@ -1762,8 +1859,8 @@ async function boot() {
       $("setup-banner").textContent = !settings.wisp && missing.length
         ? "Setup needed: configure your owned WISP_URL and the remaining runtime origins. The interface is ready; browsing starts when those services are configured."
         : "Setup needed: configure your owned WISP_URL. The interface is ready; browsing starts when the relay is reachable.";
-      $("connection-label").textContent = "setup needed";
-    } else $("connection-label").textContent = "owned relay configured";
+      $("connection-label").textContent = "Set up relay";
+    } else $("connection-label").textContent = "Relay set";
   } catch (error) {
     notify(error.message);
     log("configuration", error.message);
@@ -1781,6 +1878,15 @@ async function boot() {
   else selectTab(tabs.some((tab) => tab.id === saved.activeId) ? saved.activeId : tabs[0].id);
   resolveBoot();
 }
+// Keep the immediate exit distinct from the nearby new-tab / close-tab actions.
+const exitLabel = document.createElement("span");
+exitLabel.textContent = "Exit";
+$("panic").append(exitLabel);
+$("panic").classList.add("quick-exit");
+document.querySelector(".top-actions").append($("panic"));
+$("connection").setAttribute("aria-label", "Connection status");
+$("connection").title =
+  "A configured endpoint is not a connectivity check. Open to test your relay.";
 // Workspace extensions are shell-only: appearance never reloads runtime frames.
 const sidebarToggle = button("", () => {
   settings.layout = settings.layout === "rail" ? "sidebar" : "rail";
@@ -1834,6 +1940,10 @@ window.addEventListener(
     ),
 );
 function renderDashboard() {
+  document.body.dataset.backgroundSource = settings.backgroundSource === "theme"
+    ? "theme"
+    : "image";
+  document.body.dataset.page = active()?.url ? "browser" : "home";
   $("home").dataset.density = settings.shortcutDensity;
   $("home").style.setProperty(
     "--wallpaper-dim",
