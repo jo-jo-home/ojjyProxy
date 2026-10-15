@@ -113,7 +113,7 @@ test.afterEach(async ({ page }, info) => {
 });
 test("blue home, full selector, bookmarks and responsive settings", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "ojjyProxy", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "ojjy", exact: true })).toBeVisible();
   await page.screenshot({ path: "test-results/home-desktop.png", animations: "disabled" });
   await page.getByRole("button", { name: "customize", exact: true }).click();
   await expect(page.locator("#engine-select")).toHaveValue("sj-1.1.0");
@@ -340,6 +340,12 @@ test("runtime waits for committed domain policy before its first navigation", as
     ServiceWorker.prototype.postMessage = function (message, transfer) {
       if (message?.source === "ojjy-policy") {
         self.__policyDeliveryDelayed = true;
+        // A stale worker's ACK must not release navigation into the new route.
+        transfer[0].postMessage({
+          source: "ojjy-policy-applied",
+          ok: true,
+          prefix: "/runtime/network/",
+        });
         setTimeout(() => original.call(this, message, transfer), 200);
         return;
       }
@@ -357,7 +363,7 @@ test("runtime waits for committed domain policy before its first navigation", as
   const runtime = page.frameLocator(".runtime-frame:not([hidden])");
   await expect(
     runtime.frameLocator("#website").getByText(
-      "This domain is blocked by your ojjyProxy domain filter.",
+      "This domain is blocked by your domain filter.",
       { exact: true },
     ),
   ).toBeVisible({ timeout: 25000 });
@@ -452,6 +458,8 @@ for (const engine of ENGINES.filter((item) => item.id !== "headless")) {
     );
     const errors = [];
     const diagnostics = [];
+    const requestedPaths = [];
+    page.on("request", (request) => requestedPaths.push(new URL(request.url()).pathname));
     page.__runtimeDiagnostics = { errors, diagnostics };
     if (process.env.PROXY_DIAGNOSTICS) {
       page.on("console", (message) => console.log("browser", message.type(), message.text()));
@@ -482,7 +490,7 @@ for (const engine of ENGINES.filter((item) => item.id !== "headless")) {
       (request) => diagnostics.push(`${request.url()} ${request.failure()?.errorText}`),
     );
     page.on("response", async (response) => {
-      if (diagnostics.length < 80 && response.url().includes("/runtime/network/")) {
+      if (diagnostics.length < 80 && response.url().includes("/runtime/content/")) {
         const entry = {
           url: response.url(),
           headers: response.headers(),
@@ -555,6 +563,10 @@ for (const engine of ENGINES.filter((item) => item.id !== "headless")) {
       throw error;
     }
     expect(errors).toEqual([]);
+    expect(page.frames().some((frame) => frame.url().includes("/runtime/content/"))).toBe(true);
+    expect(requestedPaths.some((path) => path.startsWith("/runtime/network/"))).toBe(false);
+    expect(requestedPaths.some((path) => path.startsWith("/vendor/"))).toBe(false);
+    expect(requestedPaths.some((path) => /scramjet|ultraviolet|titanium/i.test(path))).toBe(false);
     await expect(website.locator("body")).toHaveAttribute("data-script", "rewritten-script-ran");
     await expect(website.locator("body")).toHaveAttribute("data-fetched", "true");
     await expect(website.locator("body")).toHaveAttribute("data-cookies", /clientcookie=one/);
@@ -616,7 +628,7 @@ for (const engine of ENGINES.filter((item) => item.id !== "headless")) {
     await page.locator("#settings-form [name=blocked]").fill("localhost");
     await page.locator("#switch-engine").click();
     await expect(
-      website.getByText("This domain is blocked by your ojjyProxy domain filter.", { exact: true }),
+      website.getByText("This domain is blocked by your domain filter.", { exact: true }),
     ).toBeVisible();
   });
 }
@@ -749,7 +761,7 @@ test("headless engine renders and drives a remote browser session", async ({ pag
     .toBeGreaterThan(3);
   // The links channel reads the remote DOM through the service; clicking the
   // link's box with a real mouse event follows it in the remote page.
-  const links = await runtimeFrame().evaluate(() => self.__headless.links());
+  const links = await runtimeFrame().evaluate(() => self.__remote.links());
   const next = links.find((link) => link.text === "next page");
   expect(next, "the remote page exposes the fixture link").toBeTruthy();
   const centerX = Math.round(next.x + next.w / 2);
@@ -777,7 +789,7 @@ test("headless engine renders and drives a remote browser session", async ({ pag
   await page.locator("#settings-form [name=blocked]").fill("localhost");
   await page.locator("#switch-engine").click();
   await expect(page.locator("#error-message")).toContainText(
-    "blocked by your ojjyProxy domain filter",
+    "blocked by your domain filter",
     { timeout: 30000 },
   );
   await expect(page.locator("#error-backup")).toBeHidden();
@@ -817,10 +829,10 @@ test("site password gate serves a login page and unlocks with the right password
     await expect(page.locator("#again")).toBeVisible();
     await page.locator('input[name="password"]').fill("e2e-gate-password");
     await page.locator("button[type=submit]").click();
-    await expect(page.getByRole("heading", { name: "ojjyProxy", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "ojjy", exact: true })).toBeVisible();
     // The cookie keeps the shell unlocked across reloads.
     await page.reload();
-    await expect(page.getByRole("heading", { name: "ojjyProxy", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "ojjy", exact: true })).toBeVisible();
   } finally {
     child.kill("SIGTERM");
   }

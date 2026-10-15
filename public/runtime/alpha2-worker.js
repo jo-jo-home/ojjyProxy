@@ -46,7 +46,7 @@ OjjyAlpha2.handle = async (event) => {
       headers: { "content-type": "text/javascript", "cache-control": "no-store" },
     });
   }
-  if (!url.pathname.startsWith("/runtime/network/")) return fetch(event.request);
+  if (!url.pathname.startsWith("/runtime/content/")) return fetch(event.request);
   await ready;
   const method = event.request.method;
   const result = await handler.handleFetch({

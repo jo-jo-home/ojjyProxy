@@ -104,6 +104,10 @@ async function applyPolicy(domains) {
           port = channel.port1;
           port.onmessage = ({ data }) => {
             if (data?.source !== "ojjy-policy-applied") return;
+            // A previous active worker may still have the old content prefix.
+            // Wait for the updated controller instead of navigating into a
+            // route that the old worker does not handle.
+            if (data.ok && data.prefix !== config.prefix) return;
             if (data.ok) resolve();
             else reject(new Error(data.message || "The domain policy could not be saved."));
           };
@@ -197,13 +201,13 @@ async function libcurlSockets() {
 }
 async function initialize() {
   if (parentOrigin !== config.parentOrigin || !token) {
-    throw new Error("Open this runtime from its configured ojjyProxy website.");
+    throw new Error("Open this workspace from its configured website.");
   }
   if (config.engine === "headless") {
     // Remote browser isolation: no service worker, no rewritten bundles, no
     // relay. The service serves this very page and its config.
     const endpoint = config.remote ||
-      (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/headless/";
+      (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/session/";
     const client = await import("./headless-client.js");
     headlessSession = await client.startHeadless({
       website,
@@ -274,6 +278,7 @@ async function initialize() {
       prefix: config.prefix,
       scramjetPath: "/runtime/vendor/main.js",
       wasmPath: "/runtime/vendor/main.wasm",
+      virtualWasmPath: "core.wasm.js",
       injectPath: "/runtime/vendor/controller.inject.js",
     });
     const serviceworker = await worker();
@@ -386,7 +391,7 @@ website.addEventListener("load", () => {
   }
 });
 setInterval(() => {
-  // Headless sessions report their own URLs from the remote browser.
+  // Remote sessions report their own URLs from the remote browser.
   if (initialized && lastUrl && !headlessSession) report();
 }, 750);
 initialize().catch(fail);

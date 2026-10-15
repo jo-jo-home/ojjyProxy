@@ -6,9 +6,9 @@ stream. The client never contacts destinations — this service does — and pag
 content crosses the network as JPEG frames, which URL- and content-keyword
 filters (school proxies) cannot read the way they read rewritten HTML.
 
-This service is also the headless engine's **runtime origin**: it serves the
+This service is also the remote-session engine's **runtime origin**: it serves the
 runtime page (`/runtime/index.html`), its config, and the client module, and
-accepts the engine's WebSocket at `/headless/`.
+accepts the engine's WebSocket at `/session/`.
 
 ## Run locally
 
@@ -16,8 +16,8 @@ accepts the engine's WebSocket at `/headless/`.
 HEADLESS_SERVICE=1 npm run dev      # dev stack + headless service on :9100
 ```
 
-The engine appears in Settings → Engine & version as **Headless browser
-(remote isolation)**. It needs Playwright's Chromium:
+The engine appears in Settings → Engine & version as **Remote session
+(isolation)**. It needs Playwright's Chromium:
 
 ```sh
 npx playwright install chromium
@@ -79,11 +79,11 @@ secret) so these paths proxy to `127.0.0.1:9100` instead of the relay, still
 requiring the `X-Ojjy-Origin-Secret` header CloudFront adds:
 
 ```
-@headless {
-    path /runtime/* /shared.js /headless /headless/*
+@remote {
+    path /runtime/* /shared.js /session /session/*
     header X-Ojjy-Origin-Secret <your-origin-secret>
 }
-handle @headless { reverse_proxy 127.0.0.1:9100 }
+handle @remote { reverse_proxy 127.0.0.1:9100 }
 ```
 
 Validate and reload (`caddy validate`, then `caddy reload`) — never recreate

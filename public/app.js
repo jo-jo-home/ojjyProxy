@@ -342,7 +342,7 @@ function setTheme() {
     "docked",
     settings.style === "docked" || ["classic", "bottom"].includes(settings.layout),
   );
-  document.title = settings.title || "ojjyProxy";
+  document.title = settings.title || "ojjy";
   const icon = document.querySelector("link[rel=icon]");
   try {
     icon.href = settings.icon && ["https:", "http:"].includes(new URL(settings.icon).protocol)
@@ -864,7 +864,7 @@ function openLibrary(type) {
     history: "History",
     tools: "Connection log",
     status: "Connection status",
-    about: "About ojjyProxy",
+    about: "About ojjy",
   }[type];
   $("library-filter").value = "";
   $("library-filter").hidden = !["bookmarks", "history"].includes(type);
@@ -880,7 +880,7 @@ function renderLibrary() {
     const copy = document.createElement("div");
     copy.className = "about-copy";
     copy.innerHTML =
-      '<h3>one browser. your connection.</h3><p>ojjyProxy is a standalone project by Jonas Lee, matching ojjy’s game hub blue. It combines four pinned Scramjet releases and Ultraviolet with an operator-owned Wisp relay.</p><p>Primary integration reference: Proxy2, shared by The Fool, who also helped with the UI. Engines and transports: Mercury Workshop and Titanium Network. Tabs, bookmarks, settings and history are saved on this browser.</p><p><strong>massive credits to The Fool</strong> — without him any of this wouldn’t be possible. he walked me through the whole process and made this project come to life. ❤️</p><p><a href="https://github.com/jo-jo-home/ojjyProxy" target="_blank" rel="noopener noreferrer">project source & full blueprint ↗</a> · <a href="/asset-manifest.json" target="_blank" rel="noopener noreferrer">asset versions & hashes ↗</a></p><p>Changing a tab title is cosmetic. Disabling local history does not erase browser history, relay metadata, or website cookies. Older alpha releases are compatibility experiments.</p>';
+      '<h3>one browser. your connection.</h3><p>A standalone workspace by Jonas Lee. Tabs, bookmarks, settings and history are saved on this browser.</p><p><a href="/credits.html" target="_blank" rel="noopener noreferrer">Full credits, licenses & project source ↗</a></p><p>Changing a tab title is cosmetic. Disabling local history does not erase browser history, relay metadata, or website cookies. Older alpha releases are compatibility experiments.</p>';
     container.append(copy);
     return;
   }
@@ -1625,7 +1625,7 @@ $("export-data").addEventListener("click", () => {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = "ojjyproxy-data.json";
+  link.download = "workspace-data.json";
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
@@ -1636,7 +1636,7 @@ $("import-data").addEventListener("change", async (event) => {
     if (file.size > 1024 * 1024) throw new Error("Choose a data file smaller than 1 MB.");
     const data = JSON.parse(await file.text());
     if (data.format !== "ojjyproxy-v1" || !Array.isArray(data.bookmarks)) {
-      throw new Error("This is not an ojjyProxy export.");
+      throw new Error("This is not a compatible workspace export.");
     }
     const imported = data.bookmarks.slice(0, 1000).map((item) => {
       const url = new URL(item.url);

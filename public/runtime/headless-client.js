@@ -1,7 +1,7 @@
-// ojjyProxy headless engine client: renders a server-side headless browser as
-// a live pixel stream and forwards real input, while speaking the shell's
-// existing runtime protocol (ready / loading / navigating / loaded / popup) so
-// tabs, titles, history, bookmarks and the error card work unchanged.
+// Remote-session engine client: renders a server-side browser as a live pixel
+// stream and forwards real input, while speaking the shell's existing runtime
+// protocol (ready / loading / navigating / loaded / popup) so tabs, titles,
+// history, bookmarks and the error card work unchanged.
 const FRAME = 1; // binary prefix for JPEG frames
 
 export async function startHeadless({ website, message, params, config, send, fail, onUrl }) {
@@ -50,7 +50,7 @@ export async function startHeadless({ website, message, params, config, send, fa
       context.drawImage(bitmap, 0, 0);
       lastFrame = bitmap;
       message.hidden = true;
-    }).catch(() => { /* a torn or partial frame is replaced by the next one */ });
+    }).catch(() => {/* a torn or partial frame is replaced by the next one */});
   }
 
   function sendJson(message) {
@@ -119,10 +119,10 @@ export async function startHeadless({ website, message, params, config, send, fa
       if (!sessionReady || attempts >= 2) {
         if (!sessionReady) {
           fail(
-            "Could not reach the headless browser service. It may be offline, at capacity, or blocked by this network.",
+            "Could not reach the remote session service. It may be offline, at capacity, or blocked by this network.",
           );
         } else {
-          fail("The headless browser session ended. Try again to start a new one.");
+          fail("The remote session ended. Try again to start a new one.");
         }
         return;
       }
@@ -130,7 +130,7 @@ export async function startHeadless({ website, message, params, config, send, fa
       note(`reconnecting to the remote browser… (attempt ${attempts})`);
       setTimeout(connect, attempts === 1 ? 800 : 2000);
     };
-    ws.onerror = () => { /* the close handler decides what happens next */ };
+    ws.onerror = () => {/* the close handler decides what happens next */};
   }
 
   connect();
@@ -152,7 +152,14 @@ export async function startHeadless({ website, message, params, config, send, fa
   canvas.addEventListener("pointerdown", (event) => {
     canvas.focus();
     const { x, y } = point(event);
-    sendJson({ type: "mouse", action: "down", x, y, button: buttonLabel(event), clickCount: clickCount(event) });
+    sendJson({
+      type: "mouse",
+      action: "down",
+      x,
+      y,
+      button: buttonLabel(event),
+      clickCount: clickCount(event),
+    });
     event.preventDefault();
   });
   canvas.addEventListener("pointermove", (event) => {
@@ -161,7 +168,14 @@ export async function startHeadless({ website, message, params, config, send, fa
   });
   canvas.addEventListener("pointerup", (event) => {
     const { x, y } = point(event);
-    sendJson({ type: "mouse", action: "up", x, y, button: buttonLabel(event), clickCount: clickCount(event) });
+    sendJson({
+      type: "mouse",
+      action: "up",
+      x,
+      y,
+      button: buttonLabel(event),
+      clickCount: clickCount(event),
+    });
     event.preventDefault();
   });
   canvas.addEventListener("wheel", (event) => {
@@ -209,11 +223,11 @@ export async function startHeadless({ website, message, params, config, send, fa
     clearCache() {
       sendJson({ type: "clear-cache" });
     },
-    stop() { /* the remote page manages its own loads; nothing to abort */ },
+    stop() {/* the remote page manages its own loads; nothing to abort */},
   };
 
   // Diagnostics hook (also used by the end-to-end test).
-  self.__headless = {
+  self.__remote = {
     links: () =>
       new Promise((resolve) => {
         const timeout = setTimeout(() => resolve([]), 5000);

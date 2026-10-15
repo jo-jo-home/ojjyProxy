@@ -151,7 +151,7 @@ export async function wallpaperStore(operation, blob) {
     request.onerror = () => reject(request.error);
     request.onblocked = () => {
       blocked = true;
-      reject(new Error("Close other ojjyProxy tabs to update wallpaper storage."));
+      reject(new Error("Close other workspace tabs to update wallpaper storage."));
     };
     request.onsuccess = () => {
       const connection = request.result;

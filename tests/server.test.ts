@@ -54,6 +54,69 @@ Deno.test("decoded traversal and unsupported methods are rejected", async () => 
   equal((await handle(new Request("http://localhost:8000/%00"))).status, 400);
   equal((await handle(new Request("http://localhost:8000/", { method: "POST" }))).status, 405);
 });
+Deno.test("neutral public metadata preserves stable IDs, legal credits and executable bytes", async () => {
+  const home = await (await handle(new Request("http://localhost:8000/"))).text();
+  equal(home.includes("<title>ojjy</title>"), true);
+  equal(/Scramjet|Ultraviolet|Titanium|ojjyProxy/.test(home), false);
+  const manifest = await (await handle(new Request("http://localhost:8000/manifest.webmanifest")))
+    .json();
+  equal(manifest.name, "ojjy");
+  const state = await (await handle(new Request("http://localhost:8000/api/config"))).json();
+  equal(state.prefix, "/runtime/content/");
+  equal(state.engines[0].id, "sj-1.1.0");
+  equal(state.engines[0].label, "Engine stable (1.1.0)");
+  equal(/Scramjet|Ultraviolet|Titanium/.test(JSON.stringify(state.engines)), false);
+  const config = await (await handle(new Request("http://localhost:8500/runtime/vendor/config.js")))
+    .text();
+  equal(config.includes('prefix:"/runtime/content/"'), true);
+  for (const filename of ["app.js", "app.wasm"]) {
+    const served = new Uint8Array(
+      await (await handle(new Request(`http://localhost:8100/runtime/vendor/${filename}`)))
+        .arrayBuffer(),
+    );
+    const original = await Deno.readFile(
+      new URL(`../public/vendor/sj-1.1.0/${filename}`, import.meta.url),
+    );
+    equal(served.length, original.length);
+    equal(served.every((byte, index) => byte === original[index]), true);
+  }
+  const credits = await (await handle(new Request("http://localhost:8000/credits.html"))).text();
+  for (
+    const name of [
+      "The Fool",
+      "Scramjet",
+      "Titanium Network",
+      "github.com/jo-jo-home/ojjyProxy",
+      "/asset-manifest.json",
+    ]
+  ) equal(credits.includes(name), true);
+  const notices = await handle(new Request("http://localhost:8000/notices/wisp-LICENSE"));
+  equal(notices.status, 200);
+  equal((await notices.text()).includes("Copyright"), true);
+  const app = await (await handle(new Request("http://localhost:8000/app.js"))).text();
+  equal(app.includes('"ojjyproxy-app-v1"'), true);
+});
+Deno.test("direct vendor trees and source maps are unpublished on shell and runtime origins", async () => {
+  for (const port of [8000, 8100]) {
+    for (
+      const pathname of [
+        "/vendor/sj-1.1.0/app.js",
+        "/%76endor/sj-1.1.0/app.wasm",
+        "/runtime/vendor/app.js.map",
+      ]
+    ) {
+      equal((await handle(new Request(`http://localhost:${port}${pathname}`))).status, 404);
+    }
+  }
+  for (
+    const pathname of [
+      "/runtime/content/http%3A%2F%2Fexample.com",
+      "/runtime/network/http%3A%2F%2Fexample.com",
+    ]
+  ) {
+    equal((await handle(new Request(`http://localhost:8100${pathname}`))).status, 503);
+  }
+});
 Deno.test("optional site password gates the shell until the correct password unlocks it", async () => {
   const previous = Deno.env.get("SITE_PASSWORD");
   try {
@@ -65,6 +128,7 @@ Deno.test("optional site password gates the shell until the correct password unl
     // The login page is self-contained and does not leak the real app markup.
     equal(lockedBody.includes('name="password"'), true);
     equal(lockedBody.includes("home-input"), false);
+    equal(lockedBody.includes("ojjyProxy"), false);
     const blocked = await handle(new Request(base + "/api/config"));
     equal((await blocked.text()).includes("runtimes"), false);
     const wrong = await handle(
@@ -109,11 +173,13 @@ Deno.test("repeated wrong passwords are rate limited", async () => {
   try {
     Deno.env.set("SITE_PASSWORD", "ojjythebest");
     const post = (body: string) =>
-      handle(new Request("https://proxy.example.com/auth", {
-        method: "POST",
-        body,
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-      }));
+      handle(
+        new Request("https://proxy.example.com/auth", {
+          method: "POST",
+          body,
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+        }),
+      );
     let status = 0;
     for (let i = 0; i < 11; i++) status = (await post("password=wrong")).status;
     equal(status, 429);
@@ -141,7 +207,7 @@ Deno.test("compact mode serves the shell and one runtime on a single origin", as
     equal(home.status, 200);
     // The shell stays at the root; the runtime is nested under /runtime/.
     const homeBody = await home.text();
-    equal(homeBody.includes("ojjyProxy"), true);
+    equal(homeBody.includes("<title>ojjy</title>"), true);
     equal(homeBody.includes("starting browser"), false);
     const runtimePage = await handle(new Request(base + "/runtime/index.html"));
     equal(runtimePage.status, 200);

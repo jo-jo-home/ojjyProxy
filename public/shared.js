@@ -1,43 +1,43 @@
 export const ENGINES = [
   {
     id: "sj-1.1.0",
-    label: "Scramjet stable (1.1.0)",
-    short: "Scramjet stable",
+    label: "Engine stable (1.1.0)",
+    short: "Engine stable",
     port: 8100,
     warm: ["/runtime/vendor/app.js", "/runtime/vendor/app.wasm"],
   },
   {
     id: "sj-2.0.0-alpha",
-    label: "Scramjet 2.0.0-alpha",
-    short: "Scramjet α0",
+    label: "Engine A0 (2.0.0-alpha)",
+    short: "Engine A0",
     port: 8200,
     warm: ["/runtime/vendor/app.js", "/runtime/vendor/app.wasm"],
   },
   {
     id: "sj-2.0.2-alpha",
-    label: "Scramjet 2.0.2-alpha",
-    short: "Scramjet α2",
+    label: "Engine A2 (2.0.2-alpha)",
+    short: "Engine A2",
     port: 8300,
     warm: ["/runtime/vendor/bundled.js"],
   },
   {
     id: "sj-2.0.67-alpha.2",
-    label: "Scramjet 2.0.67-alpha.2",
-    short: "Scramjet α67",
+    label: "Engine A67 (2.0.67-alpha.2)",
+    short: "Engine A67",
     port: 8400,
     warm: ["/runtime/vendor/main.js", "/runtime/vendor/main.wasm"],
   },
   {
     id: "uv-3.2.10",
-    label: "Ultraviolet (3.2.10) — legacy",
-    short: "Ultraviolet",
+    label: "Engine legacy (3.2.10)",
+    short: "Engine legacy",
     port: 8500,
     warm: ["/runtime/vendor/bundle.js"],
   },
   {
     id: "headless",
-    label: "Headless browser (remote isolation)",
-    short: "Headless",
+    label: "Remote session (isolation)",
+    short: "Remote",
     port: 9100,
     warm: [],
   },
@@ -87,7 +87,7 @@ export function validateWisp(value, secure = false) {
   }
   return url.href;
 }
-// Manually-switchable backup relay: ojjyProxy's own CloudFront endpoint. The
+// Manually-switchable backup relay: this project's own CloudFront endpoint. The
 // website's default endpoint comes from WISP_URL and may be another site's
 // relay; switching between the two is always an explicit user action.
 export const BACKUP_WISP = "wss://d11zfagyzg18az.cloudfront.net/wisp/";

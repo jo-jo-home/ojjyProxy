@@ -55,7 +55,11 @@ self.addEventListener("message", (event) => {
           reject(tx.error || new Error("Domain policy transaction aborted."));
       });
     }).then(() => {
-      event.ports?.[0]?.postMessage({ source: "ojjy-policy-applied", ok: true });
+      event.ports?.[0]?.postMessage({
+        source: "ojjy-policy-applied",
+        ok: true,
+        prefix: config.prefix,
+      });
     }).catch((error) => {
       event.ports?.[0]?.postMessage({
         source: "ojjy-policy-applied",
@@ -97,7 +101,7 @@ async function route(event) {
     } catch { /* Keep the browser-provided body when it cannot be buffered. */ }
   }
   if (blocked(event.request)) {
-    return new Response("This domain is blocked by your ojjyProxy domain filter.", {
+    return new Response("This domain is blocked by your domain filter.", {
       status: 403,
       headers: {
         "content-type": "text/plain",
@@ -144,7 +148,7 @@ self.addEventListener("fetch", (event) =>
     route(event).then((response) => embeddingResponse(event, response)).catch((error) => {
       console.error(error);
       // Error text is not HTML: remote URLs/errors cannot inject markup into this page.
-      return new Response(`ojjyProxy could not load this request.\n\n${error.message || error}`, {
+      return new Response(`Could not load this request.\n\n${error.message || error}`, {
         status: 502,
         headers: {
           "content-type": "text/plain; charset=utf-8",

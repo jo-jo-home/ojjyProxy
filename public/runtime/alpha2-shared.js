@@ -48,7 +48,7 @@ OjjyAlpha2.create = (cookieJar, sendSetCookie) => {
   ];
   const context = {
     config: { ...runtime.defaultConfig },
-    prefix: new URL("/runtime/network/", self.location.origin),
+    prefix: new URL("/runtime/content/", self.location.origin),
     cookieJar,
     interface: {
       codecEncode: encodeURIComponent,

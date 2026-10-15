@@ -57,7 +57,7 @@ function runtimeConfig(url: URL, engine: string) {
   }
   return {
     engine,
-    prefix: "/runtime/network/",
+    prefix: "/runtime/content/",
     wisp: environment("WISP_URL") ||
       (isLocal(url.hostname) ? `ws://${url.hostname}:9000/wisp/` : ""),
     parentOrigin: parent?.origin ||
@@ -127,7 +127,8 @@ function loginPage(again = false, limited = false) {
         : again
         ? '<p id="again">that password was not right. try again.</p>'
         : ""
-    }<form method="post" action="/auth"><input type="password" name="password" autocomplete="current-password" autofocus required><button type="submit">continue</button></form></main></body></html>`,
+    }<form method="post" action="/auth"><input type="password" name="password" autocomplete="current-password" autofocus required><button type="submit">continue</button></form></main></body></html>`
+      .replaceAll("ojjyProxy", "ojjy"),
     limited ? 429 : again ? 401 : 200,
     MIME.html,
   );
@@ -195,7 +196,7 @@ export async function handle(request: Request): Promise<Response> {
     }
     if (url.pathname === "/runtime/vendor/config.js") {
       return response(
-        `self.__uv$config={prefix:"/runtime/network/",encodeUrl:Ultraviolet.codec.xor.encode,decodeUrl:Ultraviolet.codec.xor.decode,handler:"/runtime/vendor/handler.js",client:"/runtime/vendor/client.js",bundle:"/runtime/vendor/bundle.js",config:"/runtime/vendor/config.js",sw:"/runtime/vendor/app.sw.js"};`,
+        `self.__uv$config={prefix:"/runtime/content/",encodeUrl:Ultraviolet.codec.xor.encode,decodeUrl:Ultraviolet.codec.xor.decode,handler:"/runtime/vendor/handler.js",client:"/runtime/vendor/client.js",bundle:"/runtime/vendor/bundle.js",config:"/runtime/vendor/config.js",sw:"/runtime/vendor/app.sw.js"};`,
         200,
         MIME.js,
       );
@@ -204,17 +205,22 @@ export async function handle(request: Request): Promise<Response> {
     if (pathname.includes("\0") || pathname.split("/").includes("..") || pathname.includes("\\")) {
       return response("Bad path", 400);
     }
+    // Published bundles are available only through the engine-scoped route.
+    // Keep attribution/notices accessible, but not raw package trees or maps.
+    if (pathname.startsWith("/vendor/") || pathname.endsWith(".map")) {
+      return response("Not found", 404);
+    }
     // Pinned engine bundles never change between deploys; caching them at the
     // browser turns repeat runtime startups from megabytes into cache hits.
     const vendorAsset = pathname.startsWith("/runtime/vendor/");
     if (pathname.startsWith("/runtime/")) {
       if (!engine) return response("This origin is the outer shell, not an engine runtime", 503);
-      if (pathname.startsWith("/runtime/network/")) {
+      if (pathname.startsWith("/runtime/content/") || pathname.startsWith("/runtime/network/")) {
         return response("Service worker not controlling this page. Reload the runtime.", 503);
       }
       if (pathname.startsWith("/runtime/vendor/")) {
-        // URL prefixes stay deliberately neutral (bridge/, net-a/…) so
-        // keyword-based filtering cannot match known tool names in requests.
+        // Public aliases are independent of package-directory names. This is
+        // cosmetic naming, not a guarantee against classification or monitoring.
         const relative = pathname.slice("/runtime/vendor/".length);
         const folder = relative.startsWith("bridge/")
           ? "bare-mux"

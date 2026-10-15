@@ -58,25 +58,26 @@ test("navigations allow public HTTP(S) and refuse everything dangerous", () => {
 test("the shell's per-tab blocklist is enforced with the filter wording", () => {
   assert.throws(
     () => assertNavigatable("https://ads.example.com/", ["example.com"]),
-    /blocked by your ojjyProxy domain filter/,
+    /blocked by your domain filter/,
   );
   assert.throws(
     () => assertNavigatable("https://example.com/", ["example.com"]),
-    /blocked by your ojjyProxy domain filter/,
+    /blocked by your domain filter/,
   );
   assert.doesNotThrow(() => assertNavigatable("https://example.org/", ["example.com"]));
 });
 
 test("allowPrivate lifts only the private-network rule (dev/test escape hatch)", () => {
   assert.doesNotThrow(() =>
-    assertNavigatable("http://localhost:8899/", [], { allowPrivate: true }));
+    assertNavigatable("http://localhost:8899/", [], { allowPrivate: true })
+  );
   assert.throws(
     () => assertNavigatable("javascript:alert(1)", [], { allowPrivate: true }),
     /HTTP and HTTPS/i,
   );
   assert.throws(
     () => assertNavigatable("http://localhost:8899/", ["localhost"], { allowPrivate: true }),
-    /blocked by your ojjyProxy domain filter/,
+    /blocked by your domain filter/,
   );
   assert.throws(
     () => assertNavigatable("http://127.0.0.1:8899/", []),

@@ -20,7 +20,7 @@
 //           {type:"cache-cleared"} | {type:"pong"} | {type:"closed", reason}
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
-import { WebSocketServer, WebSocket } from "ws";
+import { WebSocket, WebSocketServer } from "ws";
 import { chromium } from "playwright-core";
 import { assertNavigatable, isPrivateHost } from "./guards.mjs";
 
@@ -258,7 +258,9 @@ function attachSession(ws, hello) {
         else session.modifiers.delete(key);
       }
       if (message.action === "down") {
-        if (key.length === 1 && !session.modifiers.has("Control") && !session.modifiers.has("Meta")) {
+        if (
+          key.length === 1 && !session.modifiers.has("Control") && !session.modifiers.has("Meta")
+        ) {
           session.typed.add(key);
           await session.page.keyboard.press(key);
         } else {
@@ -351,7 +353,7 @@ const server = createServer((request, response) => {
     response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
     response.end(JSON.stringify({
       ok: true,
-      service: "ojjyProxy headless",
+      service: "ojjy remote",
       sessions: sessions.size,
       max: MAX_SESSIONS,
     }));
@@ -363,13 +365,15 @@ const server = createServer((request, response) => {
       "cache-control": "no-store",
       "cross-origin-resource-policy": "cross-origin",
     });
-    response.end(`self.PROXY_CONFIG=${JSON.stringify({
-      engine: "headless",
-      prefix: "/runtime/network/",
-      wisp: "",
-      parentOrigin: PARENT,
-      remote: "",
-    })};`);
+    response.end(`self.PROXY_CONFIG=${
+      JSON.stringify({
+        engine: "headless",
+        prefix: "/runtime/content/",
+        wisp: "",
+        parentOrigin: PARENT,
+        remote: "",
+      })
+    };`);
     return;
   }
   const file = RUNTIME_FILES.get(url.pathname);
@@ -394,7 +398,7 @@ const server = createServer((request, response) => {
   response.end("Not found");
 });
 
-const wss = new WebSocketServer({ server, path: "/headless/" });
+const wss = new WebSocketServer({ server, path: "/session/" });
 wss.on("connection", (ws, request) => {
   const origin = String(request.headers.origin || "");
   if (ORIGINS.length && !ORIGINS.includes(origin)) {
@@ -411,12 +415,13 @@ wss.on("connection", (ws, request) => {
       return ws.close(1003, "Invalid hello");
     }
     if (TOKEN && hello.token !== TOKEN) {
-      return ws.close(1008, "Bad headless token");
+      return ws.close(1008, "Bad session token");
     }
     if (sessions.size >= MAX_SESSIONS) {
       ws.send(JSON.stringify({
         type: "error",
-        message: `The headless browser is at capacity (${MAX_SESSIONS} sessions). Close a tab and try again.`,
+        message:
+          `The headless browser is at capacity (${MAX_SESSIONS} sessions). Close a tab and try again.`,
       }));
       return ws.close(1013, "At capacity");
     }
@@ -451,6 +456,8 @@ server.on("error", (error) => {
 
 server.listen(PORT, process.env.HEADLESS_HOST || "127.0.0.1", () => {
   console.log(
-    `[headless] listening on ws://127.0.0.1:${PORT}/headless/ (origins: ${ORIGINS.join(", ") || "any"})`,
+    `[remote] listening on ws://127.0.0.1:${PORT}/session/ (origins: ${
+      ORIGINS.join(", ") || "any"
+    })`,
   );
 });

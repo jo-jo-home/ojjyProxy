@@ -30,14 +30,13 @@ automatically.
 | Scramjet 2.0.2-alpha                  | `localhost:8300` | BareMux → Epoxy or Libcurl; custom compatibility glue |
 | Scramjet 2.0.67-alpha.2               | `localhost:8400` | Matched controller 0.0.14 → direct Epoxy or Libcurl   |
 | Ultraviolet 3.2.10 — legacy           | `localhost:8500` | BareMux → Epoxy or Libcurl                            |
-| Headless browser (remote isolation)   | `localhost:9100` | Remote Chromium pixel stream (`HEADLESS_SERVICE=1`)   |
+| Remote session (isolation)            | `localhost:9100` | Remote pixel stream (`HEADLESS_SERVICE=1`)            |
 
 The **headless engine** is remote browser isolation: the page renders in a server-side headless
 Chromium (see [headless/README.md](headless/README.md)) and the client drives it by mouse and
-keyboard over a pixel stream. Destinations are contacted by the service host, never by the
-client, and content crosses the network as images. Start it in dev with
-`HEADLESS_SERVICE=1 npm run dev`; in production it runs on the relay host and its origin is
-registered as the engine's runtime origin.
+keyboard over a pixel stream. Destinations are contacted by the service host, never by the client,
+and content crosses the network as images. Start it in dev with `HEADLESS_SERVICE=1 npm run dev`; in
+production it runs on the relay host and its origin is registered as the engine's runtime origin.
 
 -Epoxy is the default and is covered by the main browser tests. Libcurl is an alternative transport;
 browser coverage is recorded separately from engine availability. +Epoxy is the default and is
@@ -60,14 +59,30 @@ compatibility, browser features, advanced tools and release polish.
 
 ## Included
 
+### Public naming
+
+The interface/PWA use **ojjy** and generic engine labels (stable, A0, A2, A67, legacy, remote
+session). Engine versions and saved IDs are unchanged; [credits and source](public/credits.html)
+document the corresponding upstream projects. Content routes use `/runtime/content/`; engine
+downloads retain the existing neutral runtime aliases, and the remote-session service's WebSocket
+path is `/session/`. Raw `/vendor/` trees and source maps are not served. Existing saved bookmarks,
+settings, website storage, and older JSON exports are not reset or renamed.
+
+These are cosmetic/publication changes, **not concealment or a guarantee against filtering**.
+Configured hostnames, relay URLs, source repositories, legal notices, native JavaScript APIs and
+upstream executable identifiers remain identifiable. Required licenses and attribution are retained.
+Do not blanket-replace names in vendor JavaScript/WASM: doing so can break RPC, generated scripts,
+database names, and native APIs such as `Proxy`. After updating, reload existing runtime tabs to
+allow the service worker to update; restored destinations are real URLs, not old encoded paths.
+
 - Exact default hub palette: `#0a1628`, `#111d2e`, `#162a42`, `#1e3a5f`, `#2e6bbd`.
 - App-managed tabs, lazy session restoration, real destination addresses, back/forward/reload.
 - Desktop floating pill controls, optional docked controls, responsive mobile layout and settings.
 - Search-first home with compact destination cards, a native sort picker, and secondary tools under
   **More**. The immediate **Exit** action is separate from tab controls.
 - Six engine choices (five rewriting engines plus the headless remote-isolation browser), five
-  search providers, and your configurable relay endpoint with one-click **use default** /
-  **use backup relay** switching.
+  search providers, and your configurable relay endpoint with one-click **use default** / **use
+  backup relay** switching.
 - Optional site password gate: set `SITE_PASSWORD` on the outer app to serve a password page first.
 - Appearance controls: eighteen built-in themes — the original twelve plus OLED, Polar slate, Mauve
   mocha, Sandstone, Signal high contrast and Mint porcelain — plus a fully custom eleven-color
@@ -309,11 +324,10 @@ destination: rewritten JavaScript, dynamic fetch, client/server cookies, links, 
 updates, back navigation, domain filtering, POST bodies, dedicated workers, destination WebSocket
 echo, redirects with query and fragment, the responsive interface, and the appearance studio
 (themes, accent override, radius, motion, glass, patterns, theme codes, fonts and cursors). The
-headless engine has its own end-to-end check (remote render, pixel assertions, link clicks,
-history and the blocklist). The full deep matrix
-passes on **Chromium and Firefox**, and on **WebKit for stable, 2.0.0-alpha, and 2.0.2-alpha with
-every deep check**. These are controlled-fixture checks, not a guarantee for all websites or
-browsers.
+headless engine has its own end-to-end check (remote render, pixel assertions, link clicks, history
+and the blocklist). The full deep matrix passes on **Chromium and Firefox**, and on **WebKit for
+stable, 2.0.0-alpha, and 2.0.2-alpha with every deep check**. These are controlled-fixture checks,
+not a guarantee for all websites or browsers.
 
 Firefox required four compatibility fixes, each recorded in the build manifest:
 
