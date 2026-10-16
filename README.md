@@ -59,6 +59,33 @@ compatibility, browser features, advanced tools and release polish.
 
 ## Included
 
+### Workspace actions
+
+- Right-click shortcuts, tabs, saved bookmarks, history rows, collection entries or empty shell
+  areas for context-specific actions. Focus a shortcut/tab/row and press **Shift+F10** for the
+  same menu. Arrow keys navigate, Right/Left enter/leave a submenu, Escape dismisses. Native
+  text-input menus remain available. Menus do not reach inside third-party rewriting-engine pages.
+- Shortcut options include Edit, Favorite, Copy address, Open in new tab, Open with engine,
+  Move to folder, and Remove with a six-second **undo**. Shortcut and library-row options buttons
+  provide a direct click/touch path; touch and pen users can also long-press.
+- Pin tabs from their menu for compact icon-only entries at the strip's start. Pins are restored
+  with the session; drags stay within the pinned/unpinned group. Close Others and Close to the
+  Right show counts and ask for confirmation. Existing Reopen restores closed browsing tabs.
+- Type a folder name in Edit shortcut to create a group. Home renders collapsible folder sections;
+  drag shortcuts onto a folder or move them through the menu. Sorting works inside each group.
+- **Remote session** adds a local context menu, view zoom (Ctrl/Cmd+wheel or menu, 50–300%), scrollbar
+  panning, fullscreen, selection copy, paste and text composition. Browser-reserved window/tab
+  shortcuts cannot reliably be forwarded. Clipboard/fullscreen failures are reported, not hidden.
+  Capture defaults to JPEG quality 78 with bounded DPR-aware rendering and a pixel budget; actual
+  capture dimensions are checked. If CDP supplies smaller frames, a capped screenshot fallback
+  favors readable text over frame rate. Cache clearing now preserves remote website cookies.
+
+The remote service must be rebuilt with its updated client, `headless/helpers.mjs`, `menus.js`, and
+`workspace.css`; changing the frontend alone does not update an already-running EC2 container.
+See [the service deployment and control guide](headless/README.md),
+[the feature plan](.plans/context-menus-workspace-features-plan.md), and
+[streaming research](reports/Remote%20session%20streaming%20improvements.md).
+
 ### Public naming
 
 The interface/PWA use **ojjy** and generic engine labels (stable, A0, A2, A67, legacy, remote

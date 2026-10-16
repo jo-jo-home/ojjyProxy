@@ -1,10 +1,16 @@
 import { expect, test } from "@playwright/test";
 import http from "node:http";
-import { WebSocketServer } from "ws";
+import { WebSocket, WebSocketServer } from "ws";
 import { spawn } from "node:child_process";
 import { BACKUP_WISP, ENGINES, THEMES } from "../../public/shared.js";
 let fixture, sockets, socketHost;
 let fixtureRequests = 0;
+let remoteInput = "";
+let remoteCookie = "";
+let remoteKey = false;
+let remoteActions = 0;
+let remoteRelease = false;
+let pendingNavigationRequests = 0;
 test.beforeAll(async () => {
   fixture = http.createServer((request, response) => {
     fixtureRequests++;
@@ -13,8 +19,25 @@ test.beforeAll(async () => {
     // Firefox refuses worker scripts served as text/html, so this also fixes
     // the Firefox dedicated-worker checks.
     const pathname = new URL(request.url, "http://localhost").pathname;
+    if (pathname === "/pending-navigation") {
+      pendingNavigationRequests++;
+      // Intentionally no response headers: replacement navigation must be
+      // able to interrupt a request that has not even committed.
+      return;
+    }
+    if (pathname === "/api/remote-release") {
+      remoteRelease = true;
+      response.writeHead(204);
+      response.end();
+      return;
+    }
     if (process.env.PROXY_DIAGNOSTICS) {
-      console.log("fixture request", request.method, request.url, JSON.stringify(request.headers));
+      console.log(
+        "fixture request",
+        request.method,
+        request.url,
+        JSON.stringify(request.headers),
+      );
     }
     if (pathname === "/worker.js") {
       response.writeHead(200, { "content-type": "text/javascript" });
@@ -37,9 +60,38 @@ test.beforeAll(async () => {
       response.end();
       return;
     }
+    if (pathname === "/api/remote-input") {
+      remoteCookie = request.headers.cookie || "";
+      let text = "";
+      request.on("data", (part) => {
+        text += part;
+      });
+      request.on("end", () => {
+        remoteInput = text;
+        response.writeHead(204);
+        response.end();
+      });
+      return;
+    }
+    if (pathname === "/api/remote-key" || pathname === "/api/remote-action") {
+      if (pathname === "/api/remote-key") remoteKey = true;
+      else remoteActions++;
+      response.writeHead(204);
+      response.end();
+      return;
+    }
+    if (pathname === "/remote-controls") {
+      response.writeHead(200, { "content-type": "text/html" });
+      response.end(
+        "<!doctype html><title>Remote controls</title><script>document.cookie='cacheproof=yes; path=/';addEventListener('keydown',e=>{if(e.key==='k')fetch('/api/remote-key')});addEventListener('keyup',e=>{if(e.code==='KeyA')fetch('/api/remote-release')});</script><style>textarea{position:absolute;left:40px;top:40px;width:300px;height:100px}button{position:absolute;left:40px;top:200px;width:200px;height:50px}</style><textarea autofocus oninput=\"fetch('/api/remote-input',{method:'POST',body:this.value})\"></textarea><button onclick=\"fetch('/api/remote-action')\">Remote action</button>",
+      );
+      return;
+    }
     if (pathname === "/api/ping") {
       response.writeHead(200, { "content-type": "application/json" });
-      response.end(JSON.stringify({ ok: true, cookies: request.headers.cookie || "" }));
+      response.end(
+        JSON.stringify({ ok: true, cookies: request.headers.cookie || "" }),
+      );
       return;
     }
     response.writeHead(200, {
@@ -62,9 +114,13 @@ test.beforeAll(async () => {
   });
   sockets = new WebSocketServer({ server: socketHost });
   sockets.on("connection", (socket) => {
-    if (process.env.PROXY_DIAGNOSTICS) console.log("fixture WebSocket connected");
+    if (process.env.PROXY_DIAGNOSTICS) {
+      console.log("fixture WebSocket connected");
+    }
     socket.on("message", (message) => {
-      if (process.env.PROXY_DIAGNOSTICS) console.log("fixture received", message.toString());
+      if (process.env.PROXY_DIAGNOSTICS) {
+        console.log("fixture received", message.toString());
+      }
       socket.send("echo:" + message.toString());
     });
   });
@@ -80,7 +136,9 @@ test.afterAll(async () => {
 test.afterEach(async ({ page }, info) => {
   if (info.status !== info.expectedStatus && page.__runtimeDiagnostics) {
     for (
-      const frame of page.frames().filter((frame) => frame.url().includes("/runtime/index.html"))
+      const frame of page.frames().filter((frame) =>
+        frame.url().includes("/runtime/index.html")
+      )
     ) {
       try {
         console.error(
@@ -113,40 +171,57 @@ test.afterEach(async ({ page }, info) => {
 });
 test("blue home, full selector, bookmarks and responsive settings", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "ojjy", exact: true })).toBeVisible();
-  await page.screenshot({ path: "test-results/home-desktop.png", animations: "disabled" });
+  await expect(page.getByRole("heading", { name: "ojjy", exact: true }))
+    .toBeVisible();
+  await page.screenshot({
+    path: "test-results/home-desktop.png",
+    animations: "disabled",
+  });
   await page.getByRole("button", { name: "customize", exact: true }).click();
   await expect(page.locator("#engine-select")).toHaveValue("sj-1.1.0");
   await expect(page.locator("#engine-select option")).toHaveCount(6);
   // The quick relay buttons fill the form without saving.
   await page.getByRole("button", { name: "use backup relay" }).click();
-  await expect(page.locator("#settings-form [name=wisp]")).toHaveValue(BACKUP_WISP);
+  await expect(page.locator("#settings-form [name=wisp]")).toHaveValue(
+    BACKUP_WISP,
+  );
   await page.getByRole("button", { name: "use default" }).click();
-  await expect(page.locator("#settings-form [name=wisp]")).toHaveValue("ws://localhost:9000/wisp/");
+  await expect(page.locator("#settings-form [name=wisp]")).toHaveValue(
+    "ws://localhost:9000/wisp/",
+  );
   await page.locator("#settings [data-close]").first().click();
   await page.getByRole("button", { name: /add a shortcut/ }).click();
   await page.locator("#bookmark-form [name=name]").fill("My fixture");
-  await page.locator("#bookmark-form [name=url]").fill("http://localhost:8899/");
+  await page.locator("#bookmark-form [name=url]").fill(
+    "http://localhost:8899/",
+  );
   await page.locator("#bookmark-form [name=folder]").fill("School");
-  await page.getByRole("button", { name: "save bookmark", exact: true }).click();
+  await page.getByRole("button", { name: "save bookmark", exact: true })
+    .click();
   await expect(page.locator("#shortcut-grid")).toContainText("My fixture");
   await page.reload();
   await expect(page.locator("#shortcut-grid")).toContainText("My fixture");
   // Bookmark folders group the library without touching the home grid.
   await page.getByRole("button", { name: "bookmarks", exact: true }).click();
-  await expect(page.locator("#library-content .library-day")).toHaveText("School");
+  await expect(page.locator("#library-content .library-day")).toHaveText(
+    "School",
+  );
   await page.locator("#library [data-close]").first().click();
   // Address-bar suggestions come from saved bookmarks; middle-click closes a tab.
-  await page.getByRole("button", { name: /My fixture/ }).click();
+  await page.locator(".shortcut-card").filter({ hasText: "My fixture" })
+    .click();
   await expect(
-    page.frameLocator(".runtime-frame:not([hidden])").frameLocator("#website").getByRole(
-      "heading",
-      { name: "owned relay works" },
-    ),
+    page.frameLocator(".runtime-frame:not([hidden])").frameLocator("#website")
+      .getByRole(
+        "heading",
+        { name: "owned relay works" },
+      ),
   ).toBeVisible({ timeout: 25000 });
   await page.locator("#address").fill("my f");
   await expect(page.locator("#address-suggestions")).toBeVisible();
-  await expect(page.locator("#address-suggestions")).toContainText("My fixture");
+  await expect(page.locator("#address-suggestions")).toContainText(
+    "My fixture",
+  );
   await page.locator("#address").press("ArrowDown");
   await page.locator("#address").press("Enter");
   await expect(page.locator("#address")).toHaveValue("http://localhost:8899/");
@@ -156,7 +231,8 @@ test("blue home, full selector, bookmarks and responsive settings", async ({ pag
   await expect(page.locator("#tabs .tab")).toHaveCount(1);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "customize", exact: true }).click();
-  await expect(page.getByRole("button", { name: "save settings", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "save settings", exact: true }))
+    .toBeVisible();
   // Discreet input masks the address bar for shared screens.
   await page.locator("#settings-form [name=discreet]").check();
   await expect(page.locator("#home-input")).toHaveAttribute("type", "password");
@@ -170,12 +246,18 @@ test("blue home, full selector, bookmarks and responsive settings", async ({ pag
   // dialog is still open from the responsive check above, so use it directly.
   await page.locator("#settings-form [name=panicKey]").click();
   await page.keyboard.press("F9");
-  await expect(page.locator("#settings-form [name=panicKey]")).toHaveValue("F9");
-  await page.locator("#settings-form [name=panicUrl]").fill("http://localhost:8899/next");
-  await page.getByRole("button", { name: "save settings", exact: true }).click();
+  await expect(page.locator("#settings-form [name=panicKey]")).toHaveValue(
+    "F9",
+  );
+  await page.locator("#settings-form [name=panicUrl]").fill(
+    "http://localhost:8899/next",
+  );
+  await page.getByRole("button", { name: "save settings", exact: true })
+    .click();
   await page.keyboard.press("F9");
   await expect(page).toHaveURL(/localhost:8899\/next/);
-  await expect(page.getByRole("heading", { name: "next fixture page" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "next fixture page" }))
+    .toBeVisible();
 });
 test("appearance studio: themes, accent, radius, motion, glass, patterns, theme codes", async ({ page }) => {
   const form = page.locator("#settings-form");
@@ -183,12 +265,15 @@ test("appearance studio: themes, accent, radius, motion, glass, patterns, theme 
   const open = () => page.locator("#global-settings").click();
   const varOnBody = (name) =>
     page.evaluate(
-      (property) => getComputedStyle(document.body).getPropertyValue(property).trim(),
+      (property) =>
+        getComputedStyle(document.body).getPropertyValue(property).trim(),
       name,
     );
   await page.goto("/");
   await page.getByRole("button", { name: "customize", exact: true }).click();
-  await expect(form.locator("[name=theme] option")).toHaveCount(THEMES.length + 1);
+  await expect(form.locator("[name=theme] option")).toHaveCount(
+    THEMES.length + 1,
+  );
   // A light theme applies its palette and flips native controls to light.
   await form.locator("[name=theme]").selectOption("daylight");
   await save.click();
@@ -199,7 +284,8 @@ test("appearance studio: themes, accent, radius, motion, glass, patterns, theme 
   await open();
   await form.locator("[name=accentOverride]").check();
   await page.evaluate(() => {
-    document.querySelector("#settings-form [name=accentColor]").value = "#f0c040";
+    document.querySelector("#settings-form [name=accentColor]").value =
+      "#f0c040";
   });
   await save.click();
   expect(await varOnBody("--accent")).toBe("#f0c040");
@@ -229,7 +315,9 @@ test("appearance studio: themes, accent, radius, motion, glass, patterns, theme 
     ),
   ).toBe("0px");
   expect(
-    await page.evaluate(() => getComputedStyle(document.querySelector(".home")).animationName),
+    await page.evaluate(() =>
+      getComputedStyle(document.querySelector(".home")).animationName
+    ),
   ).toBe("none");
   // The shuffle button rolls the picker to another built-in theme.
   await open();
@@ -248,12 +336,15 @@ test("appearance studio: themes, accent, radius, motion, glass, patterns, theme 
   await page.evaluate(() => {
     document.querySelector("#settings-form [name=color-bg]").value = "#654321";
   });
-  await page.getByRole("button", { name: "apply theme code", exact: true }).click();
+  await page.getByRole("button", { name: "apply theme code", exact: true })
+    .click();
   expect(await form.locator("[name=color-bg]").inputValue()).toBe("#123456");
   await page.evaluate(() => {
-    document.querySelector("#settings-form [name=themeCode]").value = "not-a-theme-code";
+    document.querySelector("#settings-form [name=themeCode]").value =
+      "not-a-theme-code";
   });
-  await page.getByRole("button", { name: "apply theme code", exact: true }).click();
+  await page.getByRole("button", { name: "apply theme code", exact: true })
+    .click();
   await expect(page.locator("#settings-message")).toContainText("not valid");
   // New fonts and accent-tinted cursors apply and persist across reloads.
   await form.locator("[name=font]").selectOption("handwriting");
@@ -261,11 +352,14 @@ test("appearance studio: themes, accent, radius, motion, glass, patterns, theme 
   await save.click();
   await expect(page.locator("body")).toHaveAttribute("data-cursor", "ring");
   expect(
-    await page.evaluate(() => document.getElementById("cursor-style").textContent),
+    await page.evaluate(() =>
+      document.getElementById("cursor-style").textContent
+    ),
   ).toContain("data:image/svg+xml");
-  expect(await page.evaluate(() => getComputedStyle(document.body).fontFamily)).toContain(
-    "Segoe Script",
-  );
+  expect(await page.evaluate(() => getComputedStyle(document.body).fontFamily))
+    .toContain(
+      "Segoe Script",
+    );
   await page.reload();
   await expect(page.locator("body")).toHaveAttribute("data-theme", "custom");
   await expect(page.locator("body")).toHaveAttribute("data-pattern", "aurora");
@@ -273,9 +367,10 @@ test("appearance studio: themes, accent, radius, motion, glass, patterns, theme 
   await expect(page.locator("body")).toHaveAttribute("data-cursor", "ring");
   expect(await varOnBody("--bg")).toBe("#123456");
   expect(await varOnBody("--radius")).toBe("0px");
-  expect(await page.evaluate(() => getComputedStyle(document.body).fontFamily)).toContain(
-    "Segoe Script",
-  );
+  expect(await page.evaluate(() => getComputedStyle(document.body).fontFamily))
+    .toContain(
+      "Segoe Script",
+    );
 });
 test("workspace layouts preserve a live proxied page and reserve docked control space", async ({ page }) => {
   await page.goto("/");
@@ -283,31 +378,49 @@ test("workspace layouts preserve a live proxied page and reserve docked control 
   await page.locator("#home-form").evaluate((form) => form.requestSubmit());
   const runtime = page.frameLocator(".runtime-frame:not([hidden])");
   const website = runtime.frameLocator("#website");
-  await expect(website.getByRole("heading", { name: "owned relay works" })).toBeVisible({
-    timeout: 25000,
-  });
+  await expect(website.getByRole("heading", { name: "owned relay works" }))
+    .toBeVisible({
+      timeout: 25000,
+    });
   await website.locator("body").evaluate((node) => {
     node.dataset.workspaceMarker = "same-document";
   });
   const newTabPosition = (await page.locator("#new-tab").boundingBox()).x;
   await website.locator("body").evaluate(() => {
-    document.title = "A much longer website title that must not move the new-tab target";
+    document.title =
+      "A much longer website title that must not move the new-tab target";
   });
-  await expect(page.locator("#tabs .tab-title")).toContainText("A much longer website title");
-  expect((await page.locator("#new-tab").boundingBox()).x).toBeCloseTo(newTabPosition, 0);
+  await expect(page.locator("#tabs .tab-title")).toContainText(
+    "A much longer website title",
+  );
+  expect((await page.locator("#new-tab").boundingBox()).x).toBeCloseTo(
+    newTabPosition,
+    0,
+  );
   await website.locator("body").evaluate(() => {
     document.title = "short";
   });
   await expect(page.locator("#tabs .tab-title")).toHaveText("short");
-  expect((await page.locator("#new-tab").boundingBox()).x).toBeCloseTo(newTabPosition, 0);
-  const runtimeURL = await page.locator(".runtime-frame:not([hidden])").getAttribute("src");
+  expect((await page.locator("#new-tab").boundingBox()).x).toBeCloseTo(
+    newTabPosition,
+    0,
+  );
+  const runtimeURL = await page.locator(".runtime-frame:not([hidden])")
+    .getAttribute("src");
   for (const layout of ["sidebar", "rail", "classic", "bottom", "focus"]) {
     await page.locator("#global-settings").click();
     await page.locator('#settings-form [name="layout"]').selectOption(layout);
-    await page.getByRole("button", { name: "save settings", exact: true }).click();
+    await page.getByRole("button", { name: "save settings", exact: true })
+      .click();
     await expect(page.locator("#settings")).not.toBeVisible();
-    await expect(website.locator("body")).toHaveAttribute("data-workspace-marker", "same-document");
-    await expect(page.locator(".runtime-frame:not([hidden])")).toHaveAttribute("src", runtimeURL);
+    await expect(website.locator("body")).toHaveAttribute(
+      "data-workspace-marker",
+      "same-document",
+    );
+    await expect(page.locator(".runtime-frame:not([hidden])")).toHaveAttribute(
+      "src",
+      runtimeURL,
+    );
     if (["classic", "bottom"].includes(layout)) {
       const frame = await page.locator("#runtime-frames").boundingBox();
       const controls = await page.locator("#browser-controls").boundingBox();
@@ -321,10 +434,12 @@ test("workspace layouts preserve a live proxied page and reserve docked control 
       animations: "disabled",
     });
     await page.setViewportSize({ width: 390, height: 844 });
-    await expect(website.getByRole("heading", { name: "owned relay works" })).toBeVisible();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
-      390,
-    );
+    await expect(website.getByRole("heading", { name: "owned relay works" }))
+      .toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth))
+      .toBeLessThanOrEqual(
+        390,
+      );
     await page.screenshot({
       path: `test-results/workspace-${layout}-mobile.png`,
       animations: "disabled",
@@ -335,7 +450,10 @@ test("workspace layouts preserve a live proxied page and reserve docked control 
 });
 test("runtime waits for committed domain policy before its first navigation", async ({ page }) => {
   await page.addInitScript(() => {
-    if (location.pathname !== "/runtime/index.html" || typeof ServiceWorker === "undefined") return;
+    if (
+      location.pathname !== "/runtime/index.html" ||
+      typeof ServiceWorker === "undefined"
+    ) return;
     const original = ServiceWorker.prototype.postMessage;
     ServiceWorker.prototype.postMessage = function (message, transfer) {
       if (message?.source === "ojjy-policy") {
@@ -355,7 +473,8 @@ test("runtime waits for committed domain policy before its first navigation", as
   await page.goto("/");
   await page.locator("#global-settings").click();
   await page.locator('#settings-form [name="blocked"]').fill("localhost");
-  await page.getByRole("button", { name: "save settings", exact: true }).click();
+  await page.getByRole("button", { name: "save settings", exact: true })
+    .click();
   await expect(page.locator("#settings")).not.toBeVisible();
   const before = fixtureRequests;
   await page.locator("#home-input").fill("http://localhost:8899/");
@@ -367,7 +486,9 @@ test("runtime waits for committed domain policy before its first navigation", as
       { exact: true },
     ),
   ).toBeVisible({ timeout: 25000 });
-  expect(await runtime.locator("body").evaluate(() => self.__policyDeliveryDelayed)).toBe(true);
+  expect(
+    await runtime.locator("body").evaluate(() => self.__policyDeliveryDelayed),
+  ).toBe(true);
   expect(fixtureRequests).toBe(before);
 });
 test("floating navigation expands hovered segments without moving the pill or stretching icons", async ({ page }) => {
@@ -375,33 +496,45 @@ test("floating navigation expands hovered segments without moving the pill or st
   await page.locator("#home-input").fill("http://localhost:8899/");
   await page.locator("#home-form").evaluate((form) => form.requestSubmit());
   await expect(
-    page.frameLocator(".runtime-frame:not([hidden])").frameLocator("#website").getByRole(
-      "heading",
-      { name: "owned relay works" },
-    ),
+    page.frameLocator(".runtime-frame:not([hidden])").frameLocator("#website")
+      .getByRole(
+        "heading",
+        { name: "owned relay works" },
+      ),
   ).toBeVisible({ timeout: 25000 });
   const pill = page.locator(".navigation-pill");
   const home = page.locator("#nav-home");
   const initial = await home.boundingBox();
   const bounds = await pill.boundingBox();
   const iconWidth = (await home.locator("svg").boundingBox()).width;
-  await page.screenshot({ path: "test-results/navigation-rest.png", animations: "disabled" });
+  await page.screenshot({
+    path: "test-results/navigation-rest.png",
+    animations: "disabled",
+  });
   await home.hover();
-  await expect.poll(async () => (await home.boundingBox()).width).toBeGreaterThan(
-    initial.width * 1.45,
-  );
+  await expect.poll(async () => (await home.boundingBox()).width)
+    .toBeGreaterThan(
+      initial.width * 1.45,
+    );
   await expect.poll(async () =>
     Math.abs((await home.locator("svg").boundingBox()).width - iconWidth)
   ).toBeLessThan(.5);
   const grown = await home.boundingBox();
   expect((await pill.boundingBox()).width).toBeCloseTo(bounds.width, 0);
   expect(grown.x).toBeGreaterThanOrEqual(bounds.x);
-  await page.screenshot({ path: "test-results/navigation-expanded.png", animations: "disabled" });
+  await page.screenshot({
+    path: "test-results/navigation-expanded.png",
+    animations: "disabled",
+  });
   await page.locator("#nav-settings").hover();
-  await expect.poll(async () => (await page.locator("#nav-settings").boundingBox()).width)
+  await expect.poll(async () =>
+    (await page.locator("#nav-settings").boundingBox()).width
+  )
     .toBeGreaterThan(initial.width * 1.45);
   await page.mouse.move(5, 650);
-  await expect.poll(async () => Math.abs((await home.boundingBox()).width - initial.width))
+  await expect.poll(async () =>
+    Math.abs((await home.boundingBox()).width - initial.width)
+  )
     .toBeLessThan(.5);
   await home.hover();
   await home.focus();
@@ -409,40 +542,53 @@ test("floating navigation expands hovered segments without moving the pill or st
   expect(
     await home.evaluate((node) => {
       const transform = getComputedStyle(node).transform;
-      return transform === "none" || new DOMMatrixReadOnly(transform).isIdentity;
+      return transform === "none" ||
+        new DOMMatrixReadOnly(transform).isIdentity;
     }),
   ).toBe(true);
   expect(await home.evaluate((node) => node.getAnimations().length)).toBe(0);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.mouse.move(5, 650);
   await home.hover();
-  expect(await home.evaluate((node) => getComputedStyle(node).transform)).toBe("none");
+  expect(await home.evaluate((node) => getComputedStyle(node).transform)).toBe(
+    "none",
+  );
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.mouse.move(5, 650);
   await home.dispatchEvent("pointerenter", { pointerType: "touch" });
-  expect(await home.evaluate((node) => getComputedStyle(node).transform)).toBe("none");
+  expect(await home.evaluate((node) => getComputedStyle(node).transform)).toBe(
+    "none",
+  );
   await page.locator("#global-settings").click();
   await page.locator('#settings-form [name="style"]').selectOption("docked");
-  await page.getByRole("button", { name: "save settings", exact: true }).click();
+  await page.getByRole("button", { name: "save settings", exact: true })
+    .click();
   await expect(page.locator("#settings")).not.toBeVisible();
   await home.hover();
-  expect(await home.evaluate((node) => getComputedStyle(node).transform)).toBe("none");
+  expect(await home.evaluate((node) => getComputedStyle(node).transform)).toBe(
+    "none",
+  );
   await page.locator("#global-settings").click();
   await page.locator('#settings-form [name="style"]').selectOption("pill");
   await page.locator('#settings-form [name="performance"]').check();
-  await page.getByRole("button", { name: "save settings", exact: true }).click();
+  await page.getByRole("button", { name: "save settings", exact: true })
+    .click();
   await expect(page.locator("#settings")).not.toBeVisible();
   await home.hover();
-  expect(await home.evaluate((node) => getComputedStyle(node).transform)).toBe("none");
+  expect(await home.evaluate((node) => getComputedStyle(node).transform)).toBe(
+    "none",
+  );
   await page.locator("#global-settings").click();
   await page.locator('#settings-form [name="performance"]').uncheck();
-  await page.getByRole("button", { name: "save settings", exact: true }).click();
+  await page.getByRole("button", { name: "save settings", exact: true })
+    .click();
   await expect(page.locator("#settings")).not.toBeVisible();
   await page.locator("#address").focus();
   await home.hover();
-  await expect.poll(async () => (await home.boundingBox()).width).toBeGreaterThan(
-    initial.width * 1.45,
-  );
+  await expect.poll(async () => (await home.boundingBox()).width)
+    .toBeGreaterThan(
+      initial.width * 1.45,
+    );
   const edge = await home.boundingBox();
   // This point is inside expanded Home but outside its resting hit rectangle.
   // Pointer focus must not collapse the target between mouse-down and mouse-up.
@@ -459,10 +605,16 @@ for (const engine of ENGINES.filter((item) => item.id !== "headless")) {
     const errors = [];
     const diagnostics = [];
     const requestedPaths = [];
-    page.on("request", (request) => requestedPaths.push(new URL(request.url()).pathname));
+    page.on(
+      "request",
+      (request) => requestedPaths.push(new URL(request.url()).pathname),
+    );
     page.__runtimeDiagnostics = { errors, diagnostics };
     if (process.env.PROXY_DIAGNOSTICS) {
-      page.on("console", (message) => console.log("browser", message.type(), message.text()));
+      page.on(
+        "console",
+        (message) => console.log("browser", message.type(), message.text()),
+      );
     }
     page.on("websocket", (socket) => {
       diagnostics.push({ websocket: socket.url() });
@@ -470,7 +622,10 @@ for (const engine of ENGINES.filter((item) => item.id !== "headless")) {
         socket.on(
           "framesent",
           (event) =>
-            console.log("wire sent", Buffer.from(event.payload).subarray(0, 100).toString("hex")),
+            console.log(
+              "wire sent",
+              Buffer.from(event.payload).subarray(0, 100).toString("hex"),
+            ),
         );
         socket.on(
           "framereceived",
@@ -487,10 +642,13 @@ for (const engine of ENGINES.filter((item) => item.id !== "headless")) {
     });
     page.on(
       "requestfailed",
-      (request) => diagnostics.push(`${request.url()} ${request.failure()?.errorText}`),
+      (request) =>
+        diagnostics.push(`${request.url()} ${request.failure()?.errorText}`),
     );
     page.on("response", async (response) => {
-      if (diagnostics.length < 80 && response.url().includes("/runtime/content/")) {
+      if (
+        diagnostics.length < 80 && response.url().includes("/runtime/content/")
+      ) {
         const entry = {
           url: response.url(),
           headers: response.headers(),
@@ -510,7 +668,10 @@ for (const engine of ENGINES.filter((item) => item.id !== "headless")) {
     });
     page.on(
       "pageerror",
-      (error) => errors.push(`${error.message} @ ${(error.stack || "").split("\n")[1] || ""}`),
+      (error) =>
+        errors.push(
+          `${error.message} @ ${(error.stack || "").split("\n")[1] || ""}`,
+        ),
     );
     await page.goto("/");
     await page.getByRole("button", { name: "customize", exact: true }).click();
@@ -520,7 +681,8 @@ for (const engine of ENGINES.filter((item) => item.id !== "headless")) {
         process.env.PROXY_TEST_TRANSPORT,
       );
     }
-    await page.getByRole("button", { name: "save settings", exact: true }).click();
+    await page.getByRole("button", { name: "save settings", exact: true })
+      .click();
     // The existing blank tab retains its selected engine until explicitly switched.
     await page.locator("#new-tab").click();
     await page.locator("#home-input").fill("http://localhost:8899/");
@@ -528,14 +690,18 @@ for (const engine of ENGINES.filter((item) => item.id !== "headless")) {
     const runtime = page.frameLocator(".runtime-frame:not([hidden])");
     const website = runtime.frameLocator("#website");
     if (engine.id === "sj-1.1.0") {
-      await page.screenshot({ path: "test-results/browser-chromium.png", animations: "disabled" });
+      await page.screenshot({
+        path: "test-results/browser-chromium.png",
+        animations: "disabled",
+      });
     }
     try {
       // CI runners cold-start the whole stack (relay, workers, wasm) on the
       // first engine; allow more time than local hardware needs.
-      await expect(website.getByRole("heading", { name: "owned relay works" })).toBeVisible({
-        timeout: 25000,
-      });
+      await expect(website.getByRole("heading", { name: "owned relay works" }))
+        .toBeVisible({
+          timeout: 25000,
+        });
     } catch (error) {
       console.error(
         JSON.stringify(
@@ -563,64 +729,119 @@ for (const engine of ENGINES.filter((item) => item.id !== "headless")) {
       throw error;
     }
     expect(errors).toEqual([]);
-    expect(page.frames().some((frame) => frame.url().includes("/runtime/content/"))).toBe(true);
-    expect(requestedPaths.some((path) => path.startsWith("/runtime/network/"))).toBe(false);
-    expect(requestedPaths.some((path) => path.startsWith("/vendor/"))).toBe(false);
-    expect(requestedPaths.some((path) => /scramjet|ultraviolet|titanium/i.test(path))).toBe(false);
-    await expect(website.locator("body")).toHaveAttribute("data-script", "rewritten-script-ran");
-    await expect(website.locator("body")).toHaveAttribute("data-fetched", "true");
-    await expect(website.locator("body")).toHaveAttribute("data-cookies", /clientcookie=one/);
-    await expect(website.locator("body")).toHaveAttribute("data-cookies", /servercookie=two/);
+    expect(
+      page.frames().some((frame) => frame.url().includes("/runtime/content/")),
+    ).toBe(true);
+    expect(requestedPaths.some((path) => path.startsWith("/runtime/network/")))
+      .toBe(false);
+    expect(requestedPaths.some((path) => path.startsWith("/vendor/"))).toBe(
+      false,
+    );
+    expect(
+      requestedPaths.some((path) =>
+        /scramjet|ultraviolet|titanium/i.test(path)
+      ),
+    ).toBe(false);
+    await expect(website.locator("body")).toHaveAttribute(
+      "data-script",
+      "rewritten-script-ran",
+    );
+    await expect(website.locator("body")).toHaveAttribute(
+      "data-fetched",
+      "true",
+    );
+    await expect(website.locator("body")).toHaveAttribute(
+      "data-cookies",
+      /clientcookie=one/,
+    );
+    await expect(website.locator("body")).toHaveAttribute(
+      "data-cookies",
+      /servercookie=two/,
+    );
     await expect(page.locator("#browser-error")).toBeHidden();
     expect(errors).toEqual([]);
     await page.locator("#nav-collapse").click();
     await expect(page.locator("#show-controls")).toBeVisible();
     await page.locator("#show-controls").click();
     await page.locator("#nav-bookmark").click();
-    await expect(page.locator("#bookmark-form [name=url]")).toHaveValue("http://localhost:8899/");
+    await expect(page.locator("#bookmark-form [name=url]")).toHaveValue(
+      "http://localhost:8899/",
+    );
     await page.locator("#bookmark-dialog [data-close]").click();
     await website.getByRole("link", { name: "next page", exact: true }).click();
-    await expect(website.getByRole("heading", { name: "next fixture page" })).toBeVisible();
-    await expect(page.locator("#address")).toHaveValue("http://localhost:8899/next");
+    await expect(website.getByRole("heading", { name: "next fixture page" }))
+      .toBeVisible();
+    await expect(page.locator("#address")).toHaveValue(
+      "http://localhost:8899/next",
+    );
     await page.locator("#nav-back").click();
-    await expect(website.getByRole("heading", { name: "owned relay works" })).toBeVisible();
+    await expect(website.getByRole("heading", { name: "owned relay works" }))
+      .toBeVisible();
     if (process.env.DEEP_PROXY_TESTS === "1") {
       // UV on WebKit buffers request bodies but its wasm transport never
       // delivers the POST payload; the whole deep block is skipped there and
       // recorded instead of asserted.
-      const deepVerified = browserName !== "webkit" || engine.id !== "uv-3.2.10";
+      const deepVerified = browserName !== "webkit" ||
+        engine.id !== "uv-3.2.10";
       if (deepVerified) {
         await page.locator("#address").fill("http://localhost:8899/deep");
-        await page.locator("#address-form").evaluate((form) => form.requestSubmit());
-        await expect(website.locator("body")).toHaveAttribute("data-post", "POST:payload=ojjy");
+        await page.locator("#address-form").evaluate((form) =>
+          form.requestSubmit()
+        );
+        await expect(website.locator("body")).toHaveAttribute(
+          "data-post",
+          "POST:payload=ojjy",
+        );
         // Firefox runs the rewritten dedicated-worker bootstrap silently without
         // delivering its first message on every release except alpha2, whose
         // workers become inline data URLs. Record the gap instead of asserting it.
-        const workerVerified = browserName !== "firefox" || engine.id === "sj-2.0.2-alpha";
+        const workerVerified = browserName !== "firefox" ||
+          engine.id === "sj-2.0.2-alpha";
         if (workerVerified) {
-          await expect(website.locator("body")).toHaveAttribute("data-worker", "worker ready");
+          await expect(website.locator("body")).toHaveAttribute(
+            "data-worker",
+            "worker ready",
+          );
         } else {
           test.info().annotations.push({
             type: "known-gap",
-            description: `${engine.id}: dedicated workers await Firefox support`,
+            description:
+              `${engine.id}: dedicated workers await Firefox support`,
           });
         }
-        await expect(website.locator("body")).toHaveAttribute("data-socket", "echo:hello");
+        await expect(website.locator("body")).toHaveAttribute(
+          "data-socket",
+          "echo:hello",
+        );
         // Both client-set and server-set cookies must survive a full reload.
         await page.locator("#nav-reload").click();
-        await expect(website.locator("body")).toHaveAttribute("data-fetched", "true");
-        await expect(website.locator("body")).toHaveAttribute("data-cookies", /clientcookie=one/);
-        await expect(website.locator("body")).toHaveAttribute("data-cookies", /servercookie=two/);
+        await expect(website.locator("body")).toHaveAttribute(
+          "data-fetched",
+          "true",
+        );
+        await expect(website.locator("body")).toHaveAttribute(
+          "data-cookies",
+          /clientcookie=one/,
+        );
+        await expect(website.locator("body")).toHaveAttribute(
+          "data-cookies",
+          /servercookie=two/,
+        );
         await page.locator("#address").fill("http://localhost:8899/redirect");
-        await page.locator("#address-form").evaluate((form) => form.requestSubmit());
-        await expect(website.getByRole("heading", { name: "next fixture page" })).toBeVisible();
+        await page.locator("#address-form").evaluate((form) =>
+          form.requestSubmit()
+        );
+        await expect(
+          website.getByRole("heading", { name: "next fixture page" }),
+        ).toBeVisible();
         await expect(page.locator("#address")).toHaveValue(
           "http://localhost:8899/next?from=redirect#spot",
         );
       } else {
         test.info().annotations.push({
           type: "known-gap",
-          description: `${engine.id}: deep checks await WebKit transport support`,
+          description:
+            `${engine.id}: deep checks await WebKit transport support`,
         });
       }
     }
@@ -628,7 +849,9 @@ for (const engine of ENGINES.filter((item) => item.id !== "headless")) {
     await page.locator("#settings-form [name=blocked]").fill("localhost");
     await page.locator("#switch-engine").click();
     await expect(
-      website.getByText("This domain is blocked by your domain filter.", { exact: true }),
+      website.getByText("This domain is blocked by your domain filter.", {
+        exact: true,
+      }),
     ).toBeVisible();
   });
 }
@@ -637,35 +860,51 @@ test("two engines keep live tabs side by side", async ({ page }) => {
     // The tabstrip settings button is reachable from both home and browsing.
     await page.locator("#global-settings").click();
     await page.locator("#engine-select").selectOption(id);
-    await page.getByRole("button", { name: "save settings", exact: true }).click();
+    await page.getByRole("button", { name: "save settings", exact: true })
+      .click();
   };
   const open = async () => {
     await page.locator("#new-tab").click();
     await page.locator("#home-input").fill("http://localhost:8899/");
     await page.locator("#home-form").evaluate((form) => form.requestSubmit());
   };
-  const frame = () => page.frameLocator(".runtime-frame:not([hidden])").frameLocator("#website");
+  const frame = () =>
+    page.frameLocator(".runtime-frame:not([hidden])").frameLocator("#website");
   await page.goto("/");
   await selectEngine("sj-1.1.0");
   await open();
-  await expect(frame().getByRole("heading", { name: "owned relay works" })).toBeVisible({
-    timeout: 20000,
-  });
-  await expect(frame().locator("body")).toHaveAttribute("data-cookies", /clientcookie=one/);
+  await expect(frame().getByRole("heading", { name: "owned relay works" }))
+    .toBeVisible({
+      timeout: 20000,
+    });
+  await expect(frame().locator("body")).toHaveAttribute(
+    "data-cookies",
+    /clientcookie=one/,
+  );
   // Drop the initial blank tab so both remaining tabs carry live pages.
   await page.getByRole("button", { name: "Close new tab" }).click();
   // Keep the stable tab alive while Ultraviolet runs beside it.
   await selectEngine("uv-3.2.10");
   await open();
-  await expect(frame().getByRole("heading", { name: "owned relay works" })).toBeVisible({
-    timeout: 20000,
-  });
-  await expect(frame().locator("body")).toHaveAttribute("data-cookies", /clientcookie=one/);
+  await expect(frame().getByRole("heading", { name: "owned relay works" }))
+    .toBeVisible({
+      timeout: 20000,
+    });
+  await expect(frame().locator("body")).toHaveAttribute(
+    "data-cookies",
+    /clientcookie=one/,
+  );
   await expect(page.locator("#tabs .tab")).toHaveCount(2);
   // Switching back must show the first tab still loaded, not restarted.
   await page.locator("#tabs .tab").first().click();
-  await expect(frame().locator("body")).toHaveAttribute("data-script", "rewritten-script-ran");
-  await expect(frame().locator("body")).toHaveAttribute("data-cookies", /clientcookie=one/);
+  await expect(frame().locator("body")).toHaveAttribute(
+    "data-script",
+    "rewritten-script-ran",
+  );
+  await expect(frame().locator("body")).toHaveAttribute(
+    "data-cookies",
+    /clientcookie=one/,
+  );
   await expect(page.locator("#address")).toHaveValue("http://localhost:8899/");
 });
 test("tabs reorder by drag and duplicate from the tab menu", async ({ page }) => {
@@ -676,46 +915,67 @@ test("tabs reorder by drag and duplicate from the tab menu", async ({ page }) =>
     await page.locator("#home-form").evaluate((form) => form.requestSubmit());
   };
   await open("http://localhost:8899/");
-  const first = page.frameLocator(".runtime-frame:not([hidden])").frameLocator("#website");
-  await expect(first.getByRole("heading", { name: "owned relay works" })).toBeVisible({
-    timeout: 20000,
-  });
+  const first = page.frameLocator(".runtime-frame:not([hidden])").frameLocator(
+    "#website",
+  );
+  await expect(first.getByRole("heading", { name: "owned relay works" }))
+    .toBeVisible({
+      timeout: 20000,
+    });
   await open("http://localhost:8899/next");
-  const second = page.frameLocator(".runtime-frame:not([hidden])").frameLocator("#website");
-  await expect(second.getByRole("heading", { name: "next fixture page" })).toBeVisible({
-    timeout: 20000,
-  });
+  const second = page.frameLocator(".runtime-frame:not([hidden])").frameLocator(
+    "#website",
+  );
+  await expect(second.getByRole("heading", { name: "next fixture page" }))
+    .toBeVisible({
+      timeout: 20000,
+    });
   await page.getByRole("button", { name: "Close new tab" }).click();
   await expect(page.locator("#tabs .tab")).toHaveCount(2);
   // Drag the second tab onto the first: it lands before it.
-  await page.locator("#tabs .tab").nth(1).dragTo(page.locator("#tabs .tab").nth(0));
+  await page.locator("#tabs .tab").nth(1).dragTo(
+    page.locator("#tabs .tab").nth(0),
+  );
   await page.locator("#tabs .tab").first().click();
-  await expect(page.locator("#address")).toHaveValue("http://localhost:8899/next");
+  await expect(page.locator("#address")).toHaveValue(
+    "http://localhost:8899/next",
+  );
   // The right-click menu duplicates the tab and activates the copy.
   await page.locator("#tabs .tab").first().click({ button: "right" });
-  await page.screenshot({ path: "test-results/tab-menu.png", animations: "disabled" });
-  await page.locator("#cm-duplicate").click();
+  await page.screenshot({
+    path: "test-results/tab-menu.png",
+    animations: "disabled",
+  });
+  await page.getByRole("menuitem", { name: "Duplicate tab", exact: true })
+    .click();
   await expect(page.locator("#tabs .tab")).toHaveCount(3);
-  await expect(page.locator("#address")).toHaveValue("http://localhost:8899/next");
+  await expect(page.locator("#address")).toHaveValue(
+    "http://localhost:8899/next",
+  );
   await expect(
-    page.frameLocator(".runtime-frame:not([hidden])").frameLocator("#website").getByRole(
-      "heading",
-      { name: "next fixture page" },
-    ),
+    page.frameLocator(".runtime-frame:not([hidden])").frameLocator("#website")
+      .getByRole(
+        "heading",
+        { name: "next fixture page" },
+      ),
   ).toBeVisible({ timeout: 20000 });
 });
 if (process.env.LIVE_PROXY_TESTS === "1") {
   for (const id of ["sj-1.1.0", "sj-2.0.67-alpha.2"]) {
     test(`${id} HTTPS destination through owned Wisp`, async ({ page }) => {
       await page.goto("/");
-      await page.getByRole("button", { name: "customize", exact: true }).click();
+      await page.getByRole("button", { name: "customize", exact: true })
+        .click();
       await page.locator("#engine-select").selectOption(id);
-      await page.getByRole("button", { name: "save settings", exact: true }).click();
+      await page.getByRole("button", { name: "save settings", exact: true })
+        .click();
       await page.locator("#new-tab").click();
       await page.locator("#home-input").fill("https://example.com/");
       await page.locator("#home-form").evaluate((form) => form.requestSubmit());
       await expect(
-        page.frameLocator(".runtime-frame:not([hidden])").frameLocator("#website").locator("body"),
+        page.frameLocator(".runtime-frame:not([hidden])").frameLocator(
+          "#website",
+        ).locator("body"),
       ).toContainText("This domain", { timeout: 45000 });
     });
   }
@@ -724,7 +984,8 @@ test("headless engine renders and drives a remote browser session", async ({ pag
   await page.goto("/");
   await page.getByRole("button", { name: "customize", exact: true }).click();
   await page.locator("#engine-select").selectOption("headless");
-  await page.getByRole("button", { name: "save settings", exact: true }).click();
+  await page.getByRole("button", { name: "save settings", exact: true })
+    .click();
   await page.locator("#new-tab").click();
   await page.locator("#home-input").fill("http://localhost:8899/");
   await page.locator("#home-form").evaluate((form) => form.requestSubmit());
@@ -732,7 +993,9 @@ test("headless engine renders and drives a remote browser session", async ({ pag
   await expect(page.locator("#address")).toHaveValue("http://localhost:8899/", {
     timeout: 30000,
   });
-  await expect(page.locator("#browser-status")).toContainText("loaded", { timeout: 15000 });
+  await expect(page.locator("#browser-status")).toContainText("loaded", {
+    timeout: 15000,
+  });
   const runtime = page.frameLocator(".runtime-frame:not([hidden])");
   await expect(runtime.locator("canvas#screen")).toBeVisible();
   // Pixels are genuinely painted, not a blank canvas.
@@ -770,13 +1033,21 @@ test("headless engine renders and drives a remote browser session", async ({ pag
     const canvas = document.getElementById("screen");
     for (const type of ["pointerdown", "pointerup"]) {
       canvas.dispatchEvent(
-        new PointerEvent(type, { clientX: x, clientY: y, button: 0, bubbles: true }),
+        new PointerEvent(type, {
+          clientX: x,
+          clientY: y,
+          button: 0,
+          bubbles: true,
+        }),
       );
     }
   }, { x: centerX, y: centerY });
-  await expect(page.locator("#address")).toHaveValue("http://localhost:8899/next", {
-    timeout: 20000,
-  });
+  await expect(page.locator("#address")).toHaveValue(
+    "http://localhost:8899/next",
+    {
+      timeout: 20000,
+    },
+  );
   // Back through the shell controls drives the remote browser's history.
   await page.locator("#nav-back").click();
   await expect(page.locator("#address")).toHaveValue("http://localhost:8899/", {
@@ -794,6 +1065,240 @@ test("headless engine renders and drives a remote browser session", async ({ pag
   );
   await expect(page.locator("#error-backup")).toBeHidden();
 });
+test("remote session captures high-DPI pixels and supports paste, composition, selection, zoom and fullscreen", async ({ browser, browserName }) => {
+  remoteInput = "";
+  remoteKey = false;
+  remoteActions = 0;
+  const context = await browser.newContext({
+    viewport: { width: 900, height: 650 },
+    deviceScaleFactor: 2,
+  });
+  // Exercise the wire-level DPR report consistently: Firefox's automation
+  // backend may keep devicePixelRatio=1 despite context.deviceScaleFactor.
+  await context.addInitScript(() =>
+    Object.defineProperty(window, "devicePixelRatio", { get: () => 2 })
+  );
+  const page = await context.newPage();
+  try {
+    await page.goto("http://localhost:8700/");
+    await page.locator("#global-settings").click();
+    await page.locator("#engine-select").selectOption("headless");
+    await page.getByRole("button", { name: "save settings", exact: true })
+      .click();
+    await page.locator("#new-tab").click();
+    await page.locator("#home-input").fill(
+      "http://localhost:8899/remote-controls",
+    );
+    await page.locator("#home-form").evaluate((form) => form.requestSubmit());
+    await expect(page.locator("#browser-status")).toContainText("loaded", {
+      timeout: 25000,
+    });
+    const runtime = page.frameLocator(".runtime-frame:not([hidden])");
+    const screen = runtime.locator("#screen");
+    await expect(screen).toBeVisible();
+    await expect.poll(() =>
+      screen.evaluate((node) => node.width / node.clientWidth)
+    )
+      .toBeGreaterThan(1.2);
+    const input = runtime.getByRole("textbox", {
+      name: "Remote keyboard input (paste and composition supported)",
+    });
+    await input.evaluate((node) => {
+      const event = new Event("paste", { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "clipboardData", {
+        value: { getData: () => "sharp pixels" },
+      });
+      node.dispatchEvent(event);
+    });
+    await expect.poll(() => remoteInput).toBe("sharp pixels");
+    await input.evaluate((node) => {
+      node.dispatchEvent(
+        new CompositionEvent("compositionstart", { data: "" }),
+      );
+      node.dispatchEvent(
+        new CompositionEvent("compositionend", { data: " 日本語" }),
+      );
+    });
+    await expect.poll(() => remoteInput).toBe("sharp pixels 日本語");
+    await input.focus();
+    await page.keyboard.press("Control+a");
+    // Stub only the local clipboard write; selected text still comes from the
+    // real remote browser over its WebSocket. Clipboard permission is separate.
+    await input.evaluate(() => {
+      navigator.clipboard.writeText = async (text) => {
+        self.__testClipboard = text;
+      };
+    });
+    await screen.click({ button: "right", position: { x: 150, y: 160 } });
+    await runtime.getByRole("menuitem", {
+      name: "Copy selected text",
+      exact: true,
+    }).click();
+    await expect.poll(() => input.evaluate(() => self.__testClipboard)).toBe(
+      "sharp pixels 日本語",
+    );
+    await page.locator("#global-settings").click();
+    await page.locator("#clear-cache").click();
+    await expect(page.locator("#toast")).toContainText(/cache cleared/i);
+    await page.locator("#settings [data-close]").first().click();
+    await screen.click({ button: "right", position: { x: 150, y: 160 } });
+    await runtime.getByRole("menuitem", { name: "Zoom in", exact: true })
+      .click();
+    await expect(screen).toHaveCSS("transform", "matrix(1.2, 0, 0, 1.2, 0, 0)");
+    // Click the zoomed field at its CSS-space position, not its backing pixels.
+    await screen.click({ position: { x: 70, y: 70 } });
+    await page.keyboard.type("!");
+    await expect.poll(() => remoteInput).toContain("!");
+    await page.keyboard.press("k");
+    await expect.poll(() => remoteKey).toBe(true);
+    await expect.poll(() => remoteInput).toContain("k");
+    remoteRelease = false;
+    await page.keyboard.down("Shift");
+    await page.keyboard.down("A");
+    await page.keyboard.up("Shift");
+    await page.keyboard.up("a");
+    await expect.poll(() => remoteRelease).toBe(true);
+    expect(remoteCookie).toContain("cacheproof=yes");
+    await screen.click({ button: "right", position: { x: 160, y: 180 } });
+    await runtime.getByRole("menuitem", { name: "Reset zoom", exact: true })
+      .click();
+    await expect(screen).toHaveCSS("transform", "matrix(1, 0, 0, 1, 0, 0)");
+    // Long-press must not complete a remote click when opening local actions.
+    await screen.evaluate((node) => {
+      const rect = node.getBoundingClientRect();
+      node.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          pointerType: "touch",
+          pointerId: 77,
+          button: 0,
+          clientX: rect.left + 70,
+          clientY: rect.top + 220,
+        }),
+      );
+    });
+    await expect(
+      runtime.getByRole("menuitem", { name: "Reset zoom", exact: true }),
+    ).toBeVisible();
+    await screen.dispatchEvent("pointerup", {
+      pointerType: "touch",
+      pointerId: 77,
+      button: 0,
+    });
+    await page.keyboard.press("Escape");
+    // A short tap does activate the same button; ordered socket messages make
+    // the resulting count also prove the earlier long-press did not click it.
+    await screen.evaluate((node) => {
+      const rect = node.getBoundingClientRect();
+      for (const type of ["pointerdown", "pointerup"]) {
+        node.dispatchEvent(
+          new PointerEvent(type, {
+            bubbles: true,
+            pointerType: "touch",
+            pointerId: 78,
+            button: 0,
+            clientX: rect.left + 70,
+            clientY: rect.top + 220,
+          }),
+        );
+      }
+    });
+    await expect.poll(() => remoteActions).toBe(1);
+    await screen.click({ position: { x: 70, y: 70 } });
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Space");
+    await expect.poll(() => remoteActions).toBe(2);
+    await screen.click({ button: "right", position: { x: 160, y: 180 } });
+    await runtime.getByRole("menuitem", { name: "Fullscreen", exact: true })
+      .click();
+    if (browserName === "chromium") {
+      await expect.poll(() =>
+        input.evaluate(() => !!document.fullscreenElement)
+      ).toBe(true);
+      await input.evaluate(() => document.exitFullscreen());
+    } else {
+      // Some headless platform builds deny fullscreen. Either actual fullscreen
+      // or the explicit failure notice is required; never silent success.
+      await expect.poll(() =>
+        input.evaluate(() =>
+          !!document.fullscreenElement ||
+          document.body.textContent.includes("Fullscreen is unavailable")
+        )
+      ).toBe(true);
+      if (await input.evaluate(() => !!document.fullscreenElement)) {
+        await input.evaluate(() => document.exitFullscreen());
+      }
+    }
+    await screen.click({ button: "right", position: { x: 160, y: 180 } });
+    await runtime.getByRole("menuitem", {
+      name: "Open with another engine",
+      exact: true,
+    }).click();
+    await runtime.getByRole("menuitem", {
+      name: "Engine stable (1.1.0)",
+      exact: true,
+    }).click();
+    await expect(page.locator("#tabs .tab")).toHaveCount(3);
+    await expect(page.locator("#address")).toHaveValue(
+      "http://localhost:8899/remote-controls",
+    );
+    const saved = await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("ojjyproxy-app-v1"))
+    );
+    expect(saved.tabs.find((tab) => tab.id === saved.activeId).engine).toBe(
+      "sj-1.1.0",
+    );
+  } finally {
+    await context.close();
+  }
+});
+
+test("remote replacement navigation interrupts an uncommitted request", async () => {
+  const messages = [];
+  const socket = new WebSocket("ws://localhost:9100/session/", {
+    origin: "http://localhost:9100",
+  });
+  socket.on("message", (data, binary) => {
+    if (!binary) messages.push(JSON.parse(data.toString()));
+  });
+  try {
+    await new Promise((resolve, reject) => {
+      socket.once("open", resolve);
+      socket.once("error", reject);
+    });
+    socket.send(
+      JSON.stringify({ type: "hello", width: 800, height: 600, dpr: 1 }),
+    );
+    await expect.poll(() =>
+      messages.some((message) => message.type === "hello-ok")
+    ).toBe(true);
+    const before = pendingNavigationRequests;
+    socket.send(
+      JSON.stringify({
+        type: "navigate",
+        url: "http://localhost:8899/pending-navigation",
+      }),
+    );
+    await expect.poll(() => pendingNavigationRequests).toBeGreaterThan(before);
+    socket.send(JSON.stringify({ type: "release-input" }));
+    socket.send(
+      JSON.stringify({
+        type: "navigate",
+        url: "http://localhost:8899/remote-controls",
+      }),
+    );
+    await expect.poll(() =>
+      messages.some((message) =>
+        message.type === "loaded" &&
+        message.url === "http://localhost:8899/remote-controls"
+      )
+    ).toBe(true);
+    expect(messages.filter((message) => message.type === "error")).toEqual([]);
+  } finally {
+    socket.close();
+  }
+});
+
 test("site password gate serves a login page and unlocks with the right password", async ({ page }) => {
   // A second server instance with SITE_PASSWORD set exercises the real login
   // flow end to end, without affecting the shared dev stack on port 8000.
@@ -829,10 +1334,12 @@ test("site password gate serves a login page and unlocks with the right password
     await expect(page.locator("#again")).toBeVisible();
     await page.locator('input[name="password"]').fill("e2e-gate-password");
     await page.locator("button[type=submit]").click();
-    await expect(page.getByRole("heading", { name: "ojjy", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "ojjy", exact: true }))
+      .toBeVisible();
     // The cookie keeps the shell unlocked across reloads.
     await page.reload();
-    await expect(page.getByRole("heading", { name: "ojjy", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "ojjy", exact: true }))
+      .toBeVisible();
   } finally {
     child.kill("SIGTERM");
   }

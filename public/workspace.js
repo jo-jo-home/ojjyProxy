@@ -1,4 +1,9 @@
 import { ENGINES } from "./shared.js";
+export function sanitizeFolder(value) {
+  return typeof value === "string"
+    ? value.replace(/[\u0000-\u001f\u007f]/g, "").trim().replace(/\s+/g, " ").slice(0, 40)
+    : "";
+}
 
 export const LAYOUTS = ["top", "sidebar", "rail", "classic", "bottom", "focus"];
 export const BACKGROUNDS = [

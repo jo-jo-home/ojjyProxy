@@ -9,8 +9,16 @@ import {
   prepareWallpaper,
   PRESETS,
   sanitizeCollections,
+  sanitizeFolder,
 } from "../public/workspace.js";
 import { THEMES } from "../public/shared.js";
+test("folder labels normalize whitespace, reject non-text and bound user data", () => {
+  assert.equal(sanitizeFolder(null), "");
+  assert.equal(sanitizeFolder({ toString: () => "unsafe" }), "");
+  assert.equal(sanitizeFolder("  School   Games  "), "School Games");
+  assert.equal(sanitizeFolder("a\u0000b"), "ab");
+  assert.equal(sanitizeFolder("x".repeat(60)).length, 40);
+});
 
 test("background choices are bounded appearance-only IDs and preserve existing image mode", () => {
   assert.equal(BACKGROUNDS.length, 8);
