@@ -96,6 +96,7 @@ function attachSession(ws, hello) {
     queue: [],
     size: initialSize,
     held: new Set(),
+    buttons: new Set(),
     startedAt: Date.now(),
     popupReported: new WeakSet(),
   };
@@ -388,9 +389,11 @@ function attachSession(ws, hello) {
       else if (action === "down") {
         await session.page.mouse.move(x, y);
         await session.page.mouse.down({ button, clickCount });
+        session.buttons.add(button);
       } else if (action === "up") {
         await session.page.mouse.move(x, y);
         await session.page.mouse.up({ button, clickCount });
+        session.buttons.delete(button);
       }
     },
     async wheel(message) {
@@ -444,9 +447,10 @@ function attachSession(ws, hello) {
       for (const key of session.held) {
         await session.page.keyboard.up(key).catch(() => {});
       }
-      for (const button of ["left", "middle", "right"]) {
+      for (const button of session.buttons) {
         await session.page.mouse.up({ button }).catch(() => {});
       }
+      session.buttons.clear();
       session.held.clear();
       session.modifiers.clear();
       session.typed.clear();

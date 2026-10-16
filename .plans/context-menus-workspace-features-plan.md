@@ -194,6 +194,14 @@ pinned tabs are session state, not exported).
 - User selected **Push and prepare PR** rather than providing production access. Keep the service
   container rebuild and password-gated live verification explicitly pending; do not merge/deploy
   as a side effect of creating the PR.
+- Post-publication CI at `284a3e3` failed: Firefox/WebKit jobs lacked Chromium for the remote service;
+  Chromium also exposed a remote selection-copy failure. CI installation now includes Chromium in
+  both compatibility lanes, with unique artifact names. A forced input-release regression observed
+  three unheld mouse-up events (`ups:3`, expected `ups:0`); held-button tracking fixes that proven
+  defect, including an assertion that an actually-held button still releases exactly once.
+  All nine targeted remote cases pass locally across three browsers. Linux clipboard diagnostics
+  are retained and the updated CI result must be checked; the earlier local matrix is not proof
+  that the Linux clipboard failure is resolved.
 
 ### Evidence-backed adjustments to the original remote plan
 

@@ -40,10 +40,11 @@ jobs:
           deno-version: v2.x
       - run: npm ci
       - run: npm run build
-      - run: npx playwright install --with-deps ${{ matrix.browser }}
+      # The client browser varies; the remote service always needs Chromium.
+      - run: npx playwright install --with-deps ${{ matrix.browser }} chromium
       - run: npm run test:browser -- --browser=${{ matrix.browser }}
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: browser-test-results
+          name: browser-test-results-${{ matrix.browser }}
           path: test-results/

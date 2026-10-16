@@ -25,6 +25,13 @@ test.beforeAll(async () => {
       // able to interrupt a request that has not even committed.
       return;
     }
+    if (pathname === "/release-guard") {
+      response.writeHead(200, { "content-type": "text/html" });
+      response.end(
+        '<!doctype html><a id="counter" href="/">ups:0</a><script>let ups=0;addEventListener("mouseup",()=>counter.textContent="ups:"+(++ups));</script>',
+      );
+      return;
+    }
     if (pathname === "/api/remote-release") {
       remoteRelease = true;
       response.writeHead(204);
@@ -1079,6 +1086,17 @@ test("remote session captures high-DPI pixels and supports paste, composition, s
     Object.defineProperty(window, "devicePixelRatio", { get: () => 2 })
   );
   const page = await context.newPage();
+  const remoteDiagnostics = [];
+  page.on("websocket", (socket) =>
+    socket.on("framereceived", (event) => {
+      if (typeof event.payload !== "string") return;
+      try {
+        const data = JSON.parse(event.payload);
+        if (["selection", "error"].includes(data.type)) {
+          remoteDiagnostics.push(data);
+        }
+      } catch { /* Not a JSON control frame. */ }
+    }));
   try {
     await page.goto("http://localhost:8700/");
     await page.locator("#global-settings").click();
@@ -1134,9 +1152,17 @@ test("remote session captures high-DPI pixels and supports paste, composition, s
       name: "Copy selected text",
       exact: true,
     }).click();
-    await expect.poll(() => input.evaluate(() => self.__testClipboard)).toBe(
-      "sharp pixels 日本語",
-    );
+    try {
+      await expect.poll(() => input.evaluate(() => self.__testClipboard)).toBe(
+        "sharp pixels 日本語",
+      );
+    } catch (error) {
+      console.error(
+        "Remote copy diagnostics:",
+        JSON.stringify(remoteDiagnostics),
+      );
+      throw error;
+    }
     await page.locator("#global-settings").click();
     await page.locator("#clear-cache").click();
     await expect(page.locator("#toast")).toContainText(/cache cleared/i);
@@ -1294,6 +1320,59 @@ test("remote replacement navigation interrupts an uncommitted request", async ()
       )
     ).toBe(true);
     expect(messages.filter((message) => message.type === "error")).toEqual([]);
+  } finally {
+    socket.close();
+  }
+});
+
+test("remote input release does not dispatch unheld mouse buttons", async () => {
+  const messages = [];
+  const socket = new WebSocket("ws://localhost:9100/session/", {
+    origin: "http://localhost:9100",
+  });
+  socket.on("message", (data, binary) => {
+    if (!binary) messages.push(JSON.parse(data.toString()));
+  });
+  try {
+    await new Promise((resolve, reject) => {
+      socket.once("open", resolve);
+      socket.once("error", reject);
+    });
+    socket.send(
+      JSON.stringify({ type: "hello", width: 800, height: 600, dpr: 1 }),
+    );
+    await expect.poll(() =>
+      messages.some((message) => message.type === "hello-ok")
+    ).toBe(true);
+    socket.send(
+      JSON.stringify({
+        type: "navigate",
+        url: "http://localhost:8899/release-guard",
+      }),
+    );
+    await expect.poll(() =>
+      messages.some((message) => message.type === "loaded")
+    ).toBe(true);
+    socket.send(JSON.stringify({ type: "release-input" }));
+    socket.send(JSON.stringify({ type: "inspect" }));
+    await expect.poll(() =>
+      messages.find((message) => message.type === "links")?.links[0]?.text
+    ).toBe("ups:0");
+    socket.send(
+      JSON.stringify({
+        type: "mouse",
+        action: "down",
+        x: 200,
+        y: 100,
+        button: "left",
+      }),
+    );
+    socket.send(JSON.stringify({ type: "release-input" }));
+    socket.send(JSON.stringify({ type: "inspect" }));
+    await expect.poll(() =>
+      messages.filter((message) => message.type === "links").at(-1)?.links[0]
+        ?.text
+    ).toBe("ups:1");
   } finally {
     socket.close();
   }
