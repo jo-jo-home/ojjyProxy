@@ -17,16 +17,20 @@
   "dependencies": {
     "@mercuryworkshop/wisp-js": "0.4.1",
     "bare-mux": "npm:@mercuryworkshop/bare-mux@2.1.9",
-    "epoxy-transport": "npm:@mercuryworkshop/epoxy-transport@2.1.28",
     "epoxy-modern": "npm:@mercuryworkshop/epoxy-transport@3.0.1",
+    "epoxy-transport": "npm:@mercuryworkshop/epoxy-transport@2.1.28",
     "libcurl-transport": "npm:@mercuryworkshop/libcurl-transport@1.5.2",
-    "sj-stable": "npm:@mercuryworkshop/scramjet@1.1.0",
     "sj-alpha0": "npm:@mercuryworkshop/scramjet@2.0.0-alpha",
     "sj-alpha2": "npm:@mercuryworkshop/scramjet@2.0.2-alpha",
     "sj-alpha67": "npm:@mercuryworkshop/scramjet@2.0.67-alpha.2",
     "sj-controller": "npm:@mercuryworkshop/scramjet-controller@0.0.14",
+    "sj-stable": "npm:@mercuryworkshop/scramjet@1.1.0",
     "ultraviolet": "npm:@titaniumnetwork-dev/ultraviolet@3.2.10"
   },
-  "devDependencies": { "@playwright/test": "1.58.2" },
-  "engines": { "node": ">=22" }
+  "devDependencies": {
+    "@playwright/test": "1.64.1"
+  },
+  "engines": {
+    "node": ">=22"
+  }
 }
