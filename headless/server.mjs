@@ -23,12 +23,22 @@ import { readFile } from "node:fs/promises";
 import { WebSocket, WebSocketServer } from "ws";
 import { chromium } from "playwright-core";
 import { assertNavigatable, isPrivateHost } from "./guards.mjs";
+import {
+  bounded,
+  captureSize,
+  jpegSize,
+  MAX_BUFFER,
+  MAX_DIMENSION,
+  MAX_PIXELS,
+  MAX_QUEUE,
+} from "./helpers.mjs";
 
 const PORT = Number(process.env.HEADLESS_PORT || 9100);
-const ORIGINS = (process.env.HEADLESS_ORIGINS || process.env.HEADLESS_SELF || "")
-  .split(",")
-  .map((item) => item.trim())
-  .filter(Boolean);
+const ORIGINS =
+  (process.env.HEADLESS_ORIGINS || process.env.HEADLESS_SELF || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 // The origin of the ojjyProxy shell allowed to embed this runtime page.
 const PARENT = process.env.HEADLESS_PARENT || "";
 // This service's own public origin (used for the WebSocket allowlist).
@@ -37,9 +47,10 @@ const TOKEN = process.env.HEADLESS_TOKEN || "";
 const MAX_SESSIONS = Number(process.env.HEADLESS_MAX_SESSIONS || 2);
 const IDLE_MS = Number(process.env.HEADLESS_IDLE_MS || 120000);
 const MAX_AGE_MS = Number(process.env.HEADLESS_MAX_AGE_MS || 30 * 60 * 1000);
-const QUALITY = Number(process.env.HEADLESS_QUALITY || 60);
+const QUALITY = Math.round(
+  bounded(Number(process.env.HEADLESS_QUALITY ?? 78), 78, 0, 100),
+);
 const NAV_TIMEOUT_MS = 45000;
-const FRAME_CAP = 1600;
 // Dev/test escape hatch: permits navigating to localhost fixtures. Never set
 // this on a cloud deployment — the private-network block is what stops the
 // browser from being used to probe the host's internal network.
@@ -52,7 +63,11 @@ async function getBrowser() {
   const args = ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"];
   try {
     // Prefer the smaller headless-shell build when it is installed.
-    browser = await chromium.launch({ headless: true, channel: "chromium-headless-shell", args });
+    browser = await chromium.launch({
+      headless: true,
+      channel: "chromium-headless-shell",
+      args,
+    });
   } catch {
     browser = await chromium.launch({ headless: true, args });
   }
@@ -63,10 +78,12 @@ async function getBrowser() {
 }
 
 function attachSession(ws, hello) {
-  const width = Math.max(320, Math.min(2000, Math.round(hello.width || 1280)));
-  const height = Math.max(240, Math.min(1600, Math.round(hello.height || 720)));
+  const initialSize = captureSize(hello);
+  const { width, height } = initialSize;
   const blocked = Array.isArray(hello.blocked)
-    ? hello.blocked.filter((item) => typeof item === "string" && item.length < 200)
+    ? hello.blocked.filter((item) =>
+      typeof item === "string" && item.length < 200
+    ).slice(0, 256)
     : [];
   const session = {
     ws,
@@ -77,13 +94,21 @@ function attachSession(ws, hello) {
     closed: false,
     ready: false,
     queue: [],
+    size: initialSize,
+    held: new Set(),
+    buttons: new Set(),
     startedAt: Date.now(),
     popupReported: new WeakSet(),
   };
   sessions.add(session);
   const send = (message) => {
     if (!session.closed && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(message));
+      const payload = JSON.stringify(message);
+      if (ws.bufferedAmount + Buffer.byteLength(payload) > MAX_BUFFER) {
+        void session.end?.("output backpressure");
+        return;
+      }
+      ws.send(payload);
     }
   };
   const fail = (message) => send({ type: "error", message });
@@ -93,14 +118,21 @@ function attachSession(ws, hello) {
     session.closed = true;
     clearTimeout(session.idleTimer);
     clearInterval(session.ageTimer);
+    clearTimeout(session.captureTimer);
     sessions.delete(session);
     try {
+      for (const key of session.held) {
+        await session.page?.keyboard.up(key).catch(() => {});
+      }
+      session.held.clear();
       session.cdp?.detach?.().catch(() => {});
     } catch { /* already detached */ }
     try {
       await session.context?.close();
     } catch { /* already closed */ }
-    console.log(`[headless] session ended (${reason}); active=${sessions.size}`);
+    console.log(
+      `[headless] session ended (${reason}); active=${sessions.size}`,
+    );
     if (!session.closed || true) {
       try {
         ws.close(1000, reason);
@@ -118,21 +150,71 @@ function attachSession(ws, hello) {
     clearTimeout(session.idleTimer);
     session.idleTimer = setTimeout(() => end("idle timeout"), IDLE_MS);
   };
-  const startScreencast = (w, h) =>
-    session.cdp?.send("Page.startScreencast", {
+  function sendFrame(bytes, mode) {
+    const dimensions = jpegSize(bytes);
+    if (
+      !dimensions || dimensions.width > MAX_DIMENSION ||
+      dimensions.height > MAX_DIMENSION ||
+      dimensions.width * dimensions.height > MAX_PIXELS ||
+      bytes.length > MAX_BUFFER
+    ) return;
+    const signature = `${mode}:${dimensions.width}:${dimensions.height}`;
+    if (signature !== session.frameSignature) {
+      session.frameSignature = signature;
+      send({
+        type: "capture",
+        ...dimensions,
+        scale: dimensions.width / session.size.width,
+        scaleY: dimensions.height / session.size.height,
+        mode,
+      });
+    }
+    if (
+      !session.closed && ws.readyState === WebSocket.OPEN &&
+      ws.bufferedAmount < MAX_BUFFER - bytes.length
+    ) {
+      ws.send(Buffer.concat([Buffer.from([1]), bytes]));
+    }
+  }
+  async function screenshotLoop() {
+    if (session.closed || !session.fallback) return;
+    try {
+      if (!session.resizing && ws.bufferedAmount < MAX_BUFFER / 2) {
+        const size = session.size;
+        const bytes = await session.page.screenshot({
+          type: "jpeg",
+          quality: QUALITY,
+          scale: "device",
+          timeout: 5000,
+        });
+        if (session.fallback && !session.resizing && size === session.size) {
+          sendFrame(bytes, "screenshot");
+        }
+      }
+    } catch { /* navigation can interrupt a capture */ }
+    if (!session.closed && session.fallback) {
+      session.captureTimer = setTimeout(screenshotLoop, 150);
+    }
+  }
+  const startScreencast = () =>
+    session.cdp.send("Page.startScreencast", {
       format: "jpeg",
       quality: QUALITY,
-      maxWidth: Math.min(FRAME_CAP, Math.max(320, w)),
-      maxHeight: Math.min(FRAME_CAP, Math.max(240, h)),
+      maxWidth: session.size.pixelWidth,
+      maxHeight: session.size.pixelHeight,
       everyNthFrame: 1,
-    }).catch(() => {});
+    });
 
   (async () => {
     const context = await (await getBrowser()).newContext({
       viewport: { width, height },
-      deviceScaleFactor: 1,
+      deviceScaleFactor: initialSize.scale,
     });
     session.context = context;
+    if (session.closed) {
+      await context.close();
+      return;
+    }
     // Request-level guard: anything the page itself tries to fetch toward a
     // private or blocked host is aborted before it leaves the browser.
     await context.route("**/*", (route) => {
@@ -151,12 +233,30 @@ function attachSession(ws, hello) {
     session.page = page;
     const cdp = await context.newCDPSession(page);
     session.cdp = cdp;
-    await startScreencast(width, height);
     cdp.on("Page.screencastFrame", (event) => {
-      if (session.closed || ws.readyState !== WebSocket.OPEN) return;
-      ws.send(Buffer.concat([Buffer.from([1]), Buffer.from(event.data, "base64")]));
-      cdp.send("Page.screencastFrameAck", { sessionId: event.sessionId }).catch(() => {});
+      // Ack even dropped frames; never queue images behind a slow socket.
+      cdp.send("Page.screencastFrameAck", { sessionId: event.sessionId }).catch(
+        () => {},
+      );
+      if (
+        session.closed || session.resizing || session.fallback ||
+        ws.readyState !== WebSocket.OPEN
+      ) return;
+      const bytes = Buffer.from(event.data, "base64");
+      const actual = jpegSize(bytes);
+      if (
+        actual &&
+        (actual.width < session.size.pixelWidth - 2 ||
+          actual.height < session.size.pixelHeight - 2)
+      ) {
+        session.fallback = true;
+        cdp.send("Page.stopScreencast").catch(() => {});
+        void screenshotLoop();
+        return;
+      }
+      sendFrame(bytes, "screencast");
     });
+    await startScreencast();
     page.on("framenavigated", (frame) => {
       if (frame !== page.mainFrame()) return;
       const url = frame.url();
@@ -177,7 +277,10 @@ function attachSession(ws, hello) {
       } catch { /* detached during load */ }
       send({ type: "loaded", url, title, canBack: true });
     });
-    page.on("crash", () => fail("The remote browser page crashed. Reopen the tab to retry."));
+    page.on(
+      "crash",
+      () => fail("The remote browser page crashed. Reopen the tab to retry."),
+    );
     context.on("page", (popup) => {
       if (popup === page || session.popupReported.has(popup)) return;
       const report = () => {
@@ -191,9 +294,9 @@ function attachSession(ws, hello) {
     });
     console.log(`[headless] session started; active=${sessions.size}`);
     session.ready = true;
-    send({ type: "hello-ok", width, height, maxAgeMs: MAX_AGE_MS });
+    send({ type: "hello-ok", ...initialSize, maxAgeMs: MAX_AGE_MS });
     // Replay anything the client sent during setup (in hello order).
-    for (const message of session.queue.splice(0)) dispatch(message);
+    void drain();
   })().catch((error) => {
     fail(`The remote browser could not start: ${error.message || error}`);
     end("browser launch failed");
@@ -201,89 +304,201 @@ function attachSession(ws, hello) {
 
   const handlers = {
     async navigate(message) {
+      const navigation = session.navigation;
       console.log(`[headless] navigate: ${message.url}`);
-      const url = assertNavigatable(message.url, session.blocked, { allowPrivate: ALLOW_PRIVATE });
+      const url = assertNavigatable(message.url, session.blocked, {
+        allowPrivate: ALLOW_PRIVATE,
+      });
       session.lastUrl = url.href;
       send({ type: "navigating", url: url.href });
-      await session.page.goto(url.href, { waitUntil: "commit", timeout: NAV_TIMEOUT_MS })
+      await session.page.goto(url.href, {
+        waitUntil: "commit",
+        timeout: NAV_TIMEOUT_MS,
+      })
         .catch((error) => {
-          console.log(`[headless] goto failed: ${error.message?.split("\n")[0]}`);
-          fail(`Could not open that page: ${error.message?.split("\n")[0] || error}`);
+          console.log(
+            `[headless] goto failed: ${error.message?.split("\n")[0]}`,
+          );
+          if (!session.closed && navigation === session.navigation) {
+            fail(
+              `Could not open that page: ${
+                error.message?.split("\n")[0] || error
+              }`,
+            );
+          }
         });
     },
     async back() {
-      await session.page.goBack({ timeout: NAV_TIMEOUT_MS }).catch(() => {});
+      await session.page.goBack({
+        waitUntil: "commit",
+        timeout: NAV_TIMEOUT_MS,
+      }).catch(() => {});
     },
     async forward() {
-      await session.page.goForward({ timeout: NAV_TIMEOUT_MS }).catch(() => {});
+      await session.page.goForward({
+        waitUntil: "commit",
+        timeout: NAV_TIMEOUT_MS,
+      }).catch(() => {});
     },
     async reload() {
-      await session.page.reload({ waitUntil: "commit", timeout: NAV_TIMEOUT_MS }).catch(() => {});
+      await session.page.reload({
+        waitUntil: "commit",
+        timeout: NAV_TIMEOUT_MS,
+      }).catch(() => {});
     },
     async "clear-cache"() {
-      await session.context.clearCookies().catch(() => {});
       await session.cdp.send("Network.clearBrowserCache").catch(() => {});
       send({ type: "cache-cleared" });
     },
     async resize(message) {
-      const w = Math.max(320, Math.min(2000, Math.round(message.width || 1280)));
-      const h = Math.max(240, Math.min(1600, Math.round(message.height || 720)));
-      await session.page.setViewportSize({ width: w, height: h }).catch(() => {});
-      await startScreencast(w, h).catch(() => {});
+      session.resizing = true;
+      try {
+        const size = captureSize(message);
+        await session.page.setViewportSize({
+          width: size.width,
+          height: size.height,
+        });
+        await session.cdp.send("Emulation.setDeviceMetricsOverride", {
+          width: size.width,
+          height: size.height,
+          deviceScaleFactor: size.scale,
+          mobile: false,
+        });
+        session.size = size;
+        send({ type: "viewport", ...size });
+        if (!session.fallback) {
+          await session.cdp.send("Page.stopScreencast");
+          await startScreencast();
+        }
+      } finally {
+        session.resizing = false;
+      }
     },
     async mouse(message) {
       const { action, x, y, button = "left", clickCount = 1 } = message;
       if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+      if (
+        x < 0 || y < 0 || x > session.size.width || y > session.size.height ||
+        !["left", "middle", "right"].includes(button) ||
+        !Number.isInteger(clickCount) ||
+        clickCount < 1 || clickCount > 3
+      ) return;
       // Playwright's mouse has no coordinates on down/up: the pointer must be
       // moved to the target first, or clicks land at (0, 0).
       if (action === "move") await session.page.mouse.move(x, y);
       else if (action === "down") {
         await session.page.mouse.move(x, y);
         await session.page.mouse.down({ button, clickCount });
+        session.buttons.add(button);
       } else if (action === "up") {
         await session.page.mouse.move(x, y);
         await session.page.mouse.up({ button, clickCount });
+        session.buttons.delete(button);
       }
     },
     async wheel(message) {
       const { x = 0, y = 0, deltaX = 0, deltaY = 0 } = message;
+      if (
+        ![x, y, deltaX, deltaY].every(Number.isFinite) || x < 0 || y < 0 ||
+        x > session.size.width || y > session.size.height ||
+        Math.abs(deltaX) > 10000 ||
+        Math.abs(deltaY) > 10000
+      ) return;
       await session.page.mouse.move(x, y).catch(() => {});
       await session.page.mouse.wheel(deltaX, deltaY);
     },
     async key(message) {
-      const key = String(message.key || "").slice(0, 24);
-      if (!key) return;
-      if (["Control", "Alt", "Shift", "Meta"].includes(key)) {
-        if (message.action === "down") session.modifiers.add(key);
-        else session.modifiers.delete(key);
+      if (
+        !["down", "up"].includes(message.action) ||
+        typeof message.key !== "string"
+      ) return;
+      const accelerator = process.platform === "darwin" ? "Meta" : "Control";
+      const mapKey = (source) =>
+        ["Meta", "Control"].includes(source) ? accelerator : source;
+      const key = mapKey(message.key);
+      if (!key || key.length > 24) return;
+      if (["Control", "Alt", "Shift", "Meta"].includes(message.key)) {
+        const effectiveHeld = () =>
+          [...session.modifiers].some((source) => mapKey(source) === key);
+        const before = effectiveHeld();
+        if (message.action === "down") session.modifiers.add(message.key);
+        else session.modifiers.delete(message.key);
+        const after = effectiveHeld();
+        if (before === after) return;
+        if (after) {
+          await session.page.keyboard.down(key);
+          session.held.add(key);
+        } else {
+          await session.page.keyboard.up(key);
+          session.held.delete(key);
+        }
+        return;
       }
       if (message.action === "down") {
-        if (
-          key.length === 1 && !session.modifiers.has("Control") && !session.modifiers.has("Meta")
-        ) {
-          session.typed.add(key);
-          await session.page.keyboard.press(key);
-        } else {
-          session.typed.delete(key);
-          await session.page.keyboard.down(key);
-        }
+        if (session.held.size >= 64 && !session.held.has(key)) return;
+        await session.page.keyboard.down(key);
+        session.held.add(key);
       } else if (message.action === "up") {
-        if (session.typed.delete(key)) return; // press() already released it
+        session.held.delete(key);
         await session.page.keyboard.up(key).catch(() => {});
       }
+    },
+    async "release-input"() {
+      for (const key of session.held) {
+        await session.page.keyboard.up(key).catch(() => {});
+      }
+      for (const button of session.buttons) {
+        await session.page.mouse.up({ button }).catch(() => {});
+      }
+      session.buttons.clear();
+      session.held.clear();
+      session.modifiers.clear();
+      session.typed.clear();
+    },
+    async "insert-text"(message) {
+      if (typeof message.text === "string" && message.text.length <= 65536) {
+        await session.page.keyboard.insertText(message.text);
+      }
+    },
+    async "copy-selection"(message) {
+      if (!Number.isSafeInteger(message.id) || message.id < 1) return;
+      const text = await session.page.evaluate(() => {
+        const element = document.activeElement;
+        if (element?.tagName === "INPUT" && element.type === "password") {
+          return "";
+        }
+        if (
+          typeof element?.selectionStart === "number" &&
+          typeof element.value === "string"
+        ) {
+          return element.value.slice(
+            element.selectionStart,
+            element.selectionEnd,
+          ).slice(0, 65536);
+        }
+        return String(window.getSelection() || "").slice(0, 65536);
+      });
+      send({ type: "selection", id: message.id, text });
     },
     async inspect() {
       const links = await session.page.evaluate(() => {
         const found = [];
         for (const anchor of document.querySelectorAll("a[href]")) {
           const rect = anchor.getBoundingClientRect();
-          const text = (anchor.innerText || anchor.getAttribute("aria-label") || "")
-            .trim()
-            .replace(/\s+/g, " ")
-            .slice(0, 80);
+          const text =
+            (anchor.innerText || anchor.getAttribute("aria-label") || "")
+              .trim()
+              .replace(/\s+/g, " ")
+              .slice(0, 80);
           if (!text || rect.width < 4 || rect.height < 4) continue;
           if (rect.bottom < 0 || rect.top > window.innerHeight) continue;
-          found.push({ text, x: rect.x, y: rect.y, w: rect.width, h: rect.height });
+          found.push({
+            text,
+            x: rect.x,
+            y: rect.y,
+            w: rect.width,
+            h: rect.height,
+          });
           if (found.length >= 60) break;
         }
         return found;
@@ -292,10 +507,34 @@ function attachSession(ws, hello) {
     },
   };
 
-  const dispatch = (message) => {
-    const handler = handlers[message?.type];
-    if (handler) handler(message).catch((error) => fail(error.message || String(error)));
-  };
+  let draining = false;
+  const navigationCommands = new Set(["navigate", "back", "forward", "reload"]);
+  session.navigation = 0;
+  async function drain() {
+    if (draining || !session.ready) return;
+    draining = true;
+    try {
+      while (session.queue.length && !session.closed) {
+        const message = session.queue.shift();
+        try {
+          if (navigationCommands.has(message.type)) {
+            // Navigation may not commit for 45 seconds. Start it in receive
+            // order, but do not block input release or a replacement navigation.
+            const navigation = ++session.navigation;
+            void handlers[message.type](message).catch((error) => {
+              if (!session.closed && navigation === session.navigation) {
+                fail(error.message || String(error));
+              }
+            });
+          } else await handlers[message.type](message);
+        } catch (error) {
+          fail(error.message || String(error));
+        }
+      }
+    } finally {
+      draining = false;
+    }
+  }
 
   ws.on("message", (data, isBinary) => {
     if (session.closed || isBinary) return;
@@ -306,14 +545,25 @@ function attachSession(ws, hello) {
     } catch {
       return;
     }
-    if (message?.type === "ping") return send({ type: "pong" });
-    // Messages that arrive while the browser context is still being allocated
-    // (a resize can beat page creation) are queued, not dropped.
-    if (!session.ready) {
-      if (message?.type) session.queue.push(message);
+    if (
+      !message || typeof message !== "object" ||
+      typeof message.type !== "string" ||
+      !Object.hasOwn(handlers, message.type)
+    ) {
+      if (message?.type === "ping") send({ type: "pong" });
       return;
     }
-    dispatch(message);
+    // Messages that arrive while the browser context is still being allocated
+    // (a resize can beat page creation) are queued, not dropped.
+    const previous = session.queue.at(-1);
+    if (
+      previous?.type === message.type && (message.type === "resize" ||
+        (message.type === "mouse" && message.action === "move" &&
+          previous.action === "move"))
+    ) session.queue.pop();
+    if (session.queue.length >= MAX_QUEUE) return void end("input queue limit");
+    session.queue.push(message);
+    void drain();
   });
   ws.on("close", () => end("client disconnected"));
   ws.on("error", () => end("connection error"));
@@ -324,19 +574,34 @@ function attachSession(ws, hello) {
 // resolve in the repo layout (public/…) and in the flat container layout.
 const RUNTIME_FILES = new Map([
   ["/runtime/index.html", ["runtime/index.html", "text/html; charset=utf-8"]],
-  ["/runtime/adapter.js", ["runtime/adapter.js", "text/javascript; charset=utf-8"]],
+  ["/runtime/adapter.js", [
+    "runtime/adapter.js",
+    "text/javascript; charset=utf-8",
+  ]],
   [
     "/runtime/headless-client.js",
     ["runtime/headless-client.js", "text/javascript; charset=utf-8"],
   ],
-  ["/runtime/websocket.js", ["runtime/websocket.js", "text/javascript; charset=utf-8"]],
+  ["/runtime/websocket.js", [
+    "runtime/websocket.js",
+    "text/javascript; charset=utf-8",
+  ]],
   ["/shared.js", ["shared.js", "text/javascript; charset=utf-8"]],
+  ["/runtime/menus.js", ["menus.js", "text/javascript; charset=utf-8"]],
+  ["/workspace.css", ["workspace.css", "text/css; charset=utf-8"]],
+  ["/runtime/headless-helpers.mjs", [
+    "../headless/helpers.mjs",
+    "text/javascript; charset=utf-8",
+  ]],
 ]);
 async function readRuntimeFile(relative) {
   const candidates = [
     new URL(`../public/${relative}`, import.meta.url),
     new URL(`./${relative}`, import.meta.url),
   ];
+  if (relative === "../headless/helpers.mjs") {
+    candidates.push(new URL("./helpers.mjs", import.meta.url));
+  }
   for (const candidate of candidates) {
     try {
       return { data: await readFile(candidate), path: candidate };
@@ -350,7 +615,10 @@ async function readRuntimeFile(relative) {
 const server = createServer((request, response) => {
   const url = new URL(request.url, `http://localhost:${PORT}`);
   if (url.pathname === "/health" && request.method === "GET") {
-    response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+    response.writeHead(200, {
+      "content-type": "application/json",
+      "cache-control": "no-store",
+    });
     response.end(JSON.stringify({
       ok: true,
       service: "ojjy remote",
@@ -398,7 +666,11 @@ const server = createServer((request, response) => {
   response.end("Not found");
 });
 
-const wss = new WebSocketServer({ server, path: "/session/" });
+const wss = new WebSocketServer({
+  server,
+  path: "/session/",
+  maxPayload: 128 * 1024,
+});
 wss.on("connection", (ws, request) => {
   const origin = String(request.headers.origin || "");
   if (ORIGINS.length && !ORIGINS.includes(origin)) {
@@ -412,6 +684,9 @@ wss.on("connection", (ws, request) => {
     try {
       hello = JSON.parse(data.toString());
     } catch {
+      return ws.close(1003, "Invalid hello");
+    }
+    if (!hello || hello.type !== "hello") {
       return ws.close(1003, "Invalid hello");
     }
     if (TOKEN && hello.token !== TOKEN) {
@@ -448,7 +723,9 @@ server.on("error", (error) => {
   if (error?.code === "EADDRINUSE") {
     // Another instance of this service (a stale dev stack) already owns the
     // port; bow out quietly instead of tearing down the whole dev stack.
-    console.warn("[headless] port busy; assuming an existing instance is serving");
+    console.warn(
+      "[headless] port busy; assuming an existing instance is serving",
+    );
     process.exit(0);
   }
   throw error;

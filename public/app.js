@@ -14,7 +14,9 @@ import {
   HOME_DEFAULTS,
   LAYOUTS,
   sanitizeCollections,
+  sanitizeFolder,
 } from "./workspace.js";
+import { createMenuHost } from "./menus.js";
 import { createStudio } from "./studio.js";
 const $ = (id) => document.getElementById(id);
 const KEY = "ojjyproxy-app-v1";
@@ -85,6 +87,7 @@ let bookmarks = Array.isArray(saved.bookmarks)
     },
   ];
 let visits = Array.isArray(saved.visits) ? saved.visits.slice(0, 500) : [];
+bookmarks = bookmarks.map((item) => ({ ...item, folder: sanitizeFolder(item.folder) }));
 let collections = sanitizeCollections(saved.collections);
 let registry = {}, configuration, activeId, sort = "favorite", libraryType, toastTimer;
 const tabs = [], logs = [];
@@ -102,7 +105,13 @@ function persist() {
         collections,
         visits,
         tabs: settings.restore
-          ? tabs.map(({ id, title, url, engine }) => ({ id, title, url, engine }))
+          ? tabs.map(({ id, title, url, engine, pinned }) => ({
+            id,
+            title,
+            url,
+            engine,
+            ...(pinned ? { pinned: true } : {}),
+          }))
           : [],
         activeId,
       }),
@@ -111,9 +120,27 @@ function persist() {
     notify("This browser could not save local data.");
   }
 }
-function notify(text) {
+function notify(text, options = {}) {
+  const { actionLabel, onAction, duration = 4200 } = options;
   const toast = $("toast");
-  toast.textContent = text;
+  // A modal dialog makes the rest of the document inert, so a toast with an
+  // action button must live inside that dialog to stay clickable.
+  const modal = [...document.querySelectorAll("dialog:modal")].pop();
+  const home = modal && modal.isConnected ? modal : document.body;
+  if (toast.parentElement !== home) home.append(toast);
+  toast.replaceChildren();
+  toast.append(document.createTextNode(text));
+  if (actionLabel && onAction) {
+    const action = button(actionLabel, () => {
+      clearTimeout(toastTimer);
+      clearTimeout(toastHideTimer);
+      toast.hidden = true;
+      delete toast.dataset.visible;
+      onAction();
+    }, "toast-action");
+    action.addEventListener("pointerdown", (event) => event.stopPropagation());
+    toast.append(action);
+  }
   clearTimeout(toastTimer);
   clearTimeout(toastHideTimer);
   toast.hidden = false;
@@ -125,8 +152,9 @@ function notify(text) {
     delete toast.dataset.visible;
     toastHideTimer = setTimeout(() => {
       toast.hidden = true;
+      if (onAction) toast.replaceChildren();
     }, transitionTime(toast));
-  }, 4200);
+  }, duration);
 }
 let toastHideTimer;
 function transitionTime(node) {
@@ -362,6 +390,447 @@ function setTheme() {
     requestAnimationFrame(() => document.documentElement.classList.remove("theme-changing"))
   );
 }
+// ---- First-party context menus ---------------------------------------------
+// Every menu action reuses an existing function; menus never bypass the shell's
+// own paths, so a menu click and a visible button behave identically.
+const menus = createMenuHost({
+  onError: () => notify("That action could not finish. Please try again."),
+});
+$("confirm-accept").addEventListener("click", () => $("menu-confirm").close("accept"));
+document.addEventListener("close", (event) => {
+  const toast = $("toast");
+  if (event.target.contains?.(toast)) {
+    const modal = [...document.querySelectorAll("dialog:modal")].pop();
+    (modal || document.body).append(toast);
+  }
+}, true);
+function copyText(value, what) {
+  navigator.clipboard.writeText(value).then(
+    () => notify(`${what} copied to the clipboard.`),
+    () => notify(`The clipboard was not available; the ${what.toLowerCase()} was not copied.`),
+  );
+}
+function confirmAction(text, acceptLabel = "confirm") {
+  return new Promise((resolve) => {
+    const dialog = $("menu-confirm");
+    $("confirm-text").textContent = text;
+    $("confirm-accept").textContent = acceptLabel;
+    dialog.returnValue = "";
+    openDialog(dialog);
+    dialog.addEventListener("close", () => resolve(dialog.returnValue === "accept"), {
+      once: true,
+    });
+  });
+}
+function newTabBeside(afterId) {
+  const anchor = tabs.find((tab) => tab.id === afterId);
+  if (!anchor) return null;
+  const opened = newTab("", settings.engine, false);
+  if (!opened) return null;
+  const from = tabs.findIndex((item) => item.id === opened.id);
+  const [moved] = tabs.splice(from, 1);
+  const after = tabs.findIndex((item) => item.id === afterId);
+  // A new tab is unpinned. From a pinned anchor it belongs immediately after
+  // the pinned group, before the first visible unpinned tab (not array-last).
+  const insertion = anchor.pinned ? tabs.findIndex((tab) => !tab.pinned) : after + 1;
+  tabs.splice(insertion < 0 ? tabs.length : insertion, 0, moved);
+  selectTab(opened.id);
+  return opened;
+}
+function folderList() {
+  return [...new Set(bookmarks.map((item) => item.folder?.trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b));
+}
+function refreshBookmarks() {
+  persist();
+  renderShortcuts();
+  if ($("library").open) renderLibrary();
+}
+function engineSubmenu(url) {
+  return ENGINES.filter((engine) => registry[engine.id]).map((engine) => ({
+    id: "engine-" + engine.id,
+    label: engine.label,
+    action: () => {
+      if ($("library").open) closeDialog($("library"));
+      const opened = newTab("", engine.id);
+      if (opened) navigate(url, opened);
+    },
+  }));
+}
+function moveSubmenu(item) {
+  const folders = folderList().filter((folder) => folder !== item.folder);
+  const items = folders.map((folder) => ({
+    id: "folder-" + folder,
+    label: folder,
+    action: () => {
+      item.folder = folder;
+      refreshBookmarks();
+      notify(`Moved to “${folder}”.`);
+    },
+  }));
+  if (item.folder) {
+    items.push({
+      id: "unfile",
+      label: "Remove from folder",
+      action: () => {
+        item.folder = "";
+        refreshBookmarks();
+      },
+    });
+  }
+  return items.length
+    ? items
+    : [{ id: "none", label: "No folders yet — add one in Edit", disabled: true }];
+}
+function removeBookmarkUndo(item) {
+  const index = bookmarks.findIndex((entry) => entry.id === item.id);
+  if (index < 0) return;
+  bookmarks.splice(index, 1);
+  refreshBookmarks();
+  notify("Shortcut removed.", {
+    actionLabel: "undo",
+    duration: 6000,
+    onAction: () => {
+      if (bookmarks.some((entry) => entry.id === item.id || entry.url === item.url)) return;
+      bookmarks.splice(Math.min(index, bookmarks.length), 0, item);
+      refreshBookmarks();
+    },
+  });
+}
+function bookmarkMenu(item) {
+  const open = (newWindow = false) => {
+    if ($("library").open) closeDialog($("library"));
+    const target = newWindow ? newTab() : active();
+    if (target) navigate(item.url, target);
+  };
+  return [
+    { id: "open", label: "Open", icon: "forward", action: () => open() },
+    {
+      id: "open-new",
+      label: "Open in new tab",
+      action: () => {
+        open(true);
+      },
+    },
+    { id: "engine", label: "Open with engine", submenu: engineSubmenu(item.url) },
+    { id: "sep-edit", separator: true },
+    { id: "edit", label: "Edit shortcut", icon: "settings", action: () => editBookmark(item) },
+    {
+      id: "favorite",
+      label: item.favorite ? "Unfavorite" : "Favorite",
+      icon: "star",
+      checked: !!item.favorite,
+      action: () => {
+        item.favorite = !item.favorite;
+        refreshBookmarks();
+      },
+    },
+    {
+      id: "copy",
+      label: "Copy address",
+      icon: "globe",
+      action: () => copyText(item.url, "Address"),
+    },
+    { id: "move", label: "Move to folder", submenu: moveSubmenu(item) },
+    { id: "sep-remove", separator: true },
+    {
+      id: "remove",
+      label: "Remove",
+      icon: "x",
+      danger: true,
+      action: () => removeBookmarkUndo(item),
+    },
+  ];
+}
+function removeVisitUndo(entry) {
+  const index = visits.findIndex((item) => item.id === entry.id);
+  if (index < 0) return;
+  visits.splice(index, 1);
+  persist();
+  renderDashboard();
+  if ($("library").open) renderLibrary();
+  notify("Visit removed.", {
+    actionLabel: "undo",
+    duration: 6000,
+    onAction: () => {
+      visits.splice(Math.min(index, visits.length), 0, entry);
+      persist();
+      renderDashboard();
+      if ($("library").open) renderLibrary();
+    },
+  });
+}
+async function clearDayConfirm(day) {
+  const count = visits.filter((entry) => dayLabel(entry.time) === day).length;
+  if (!count) return;
+  if (
+    !await confirmAction(
+      `Clear the ${count} local visit${count === 1 ? "" : "s"} from ${day}?`,
+      "clear",
+    )
+  ) {
+    return;
+  }
+  visits = visits.filter((entry) => dayLabel(entry.time) !== day);
+  persist();
+  renderDashboard();
+  renderLibrary();
+}
+function historyMenu(entry) {
+  return [
+    {
+      id: "open",
+      label: "Open",
+      icon: "forward",
+      action: () => {
+        closeDialog($("library"));
+        navigate(entry.url);
+      },
+    },
+    {
+      id: "open-new",
+      label: "Open in new tab",
+      action: () => {
+        closeDialog($("library"));
+        const opened = newTab();
+        if (opened) navigate(entry.url, opened);
+      },
+    },
+    {
+      id: "copy",
+      label: "Copy address",
+      icon: "globe",
+      action: () => copyText(entry.url, "Address"),
+    },
+    { id: "sep", separator: true },
+    {
+      id: "remove",
+      label: "Remove visit",
+      icon: "x",
+      danger: true,
+      action: () => removeVisitUndo(entry),
+    },
+    {
+      id: "clear-day",
+      label: "Clear this day",
+      danger: true,
+      action: () => clearDayConfirm(dayLabel(entry.time)),
+    },
+  ];
+}
+function tabMenu(id) {
+  const ordered = orderedTabs();
+  const index = ordered.findIndex((item) => item.id === id);
+  if (index < 0) return [];
+  const tab = ordered[index];
+  const others = tabs.length - 1;
+  const rightCount = tabs.length - index - 1;
+  return [
+    {
+      id: "new-right",
+      label: "New tab to the right",
+      icon: "plus",
+      action: () => newTabBeside(id),
+    },
+    { id: "duplicate", label: "Duplicate tab", action: () => duplicateTab(id) },
+    {
+      id: "pin",
+      label: tab.pinned ? "Unpin tab" : "Pin tab",
+      icon: "star",
+      checked: !!tab.pinned,
+      action: () => {
+        tab.pinned = !tab.pinned;
+        persist();
+        renderTabs();
+      },
+    },
+    { id: "sep-close", separator: true },
+    {
+      id: "close",
+      label: "Close tab",
+      icon: "x",
+      danger: true,
+      disabled: tabs.length <= 1,
+      action: () => closeTab(id),
+    },
+    {
+      id: "close-others",
+      label: `Close other tabs${others ? ` (${others})` : ""}`,
+      danger: true,
+      disabled: others < 1,
+      action: async () => {
+        if (
+          !await confirmAction(`Close ${others} other tab${others === 1 ? "" : "s"}?`, "close them")
+        ) {
+          return;
+        }
+        for (const entry of [...tabs]) if (entry.id !== id) closeTab(entry.id);
+      },
+    },
+    {
+      id: "close-right",
+      label: `Close tabs to the right${rightCount ? ` (${rightCount})` : ""}`,
+      danger: true,
+      disabled: rightCount < 1,
+      action: async () => {
+        if (
+          !await confirmAction(
+            `Close ${rightCount} tab${rightCount === 1 ? "" : "s"} to the right?`,
+            "close them",
+          )
+        ) return;
+        for (const entry of ordered.slice(index + 1)) if (tabs.includes(entry)) closeTab(entry.id);
+      },
+    },
+    { id: "sep-reopen", separator: true },
+    {
+      id: "reopen",
+      label: "Reopen closed tab",
+      icon: "rotate",
+      disabled: !closedTabs.length,
+      action: reopenTab,
+    },
+  ];
+}
+function collectionMenu(collection) {
+  return [
+    {
+      id: "open",
+      label: `Open all (${collection.tabs.length})`,
+      icon: "forward",
+      disabled: !collection.tabs.length,
+      action: () => restoreCollection(collection),
+    },
+    {
+      id: "copy",
+      label: "Copy addresses",
+      icon: "globe",
+      disabled: !collection.tabs.length,
+      action: () => copyText(collection.tabs.map((tab) => tab.url).join("\n"), "Addresses"),
+    },
+    {
+      id: "rename",
+      label: "Rename collection",
+      action: () => {
+        renderCollections();
+        openDialog($("collections-dialog"));
+        $("collection-list").querySelector(
+          `[data-collection-id="${CSS.escape(collection.id)}"] input`,
+        )?.focus();
+      },
+    },
+    {
+      id: "remove",
+      label: "Remove collection",
+      danger: true,
+      action: async () => {
+        if (
+          !await confirmAction(
+            `Remove “${collection.name}” (${collection.tabs.length} saved tabs)? Open tabs will stay.`,
+            "remove",
+          )
+        ) return;
+        collections = collections.filter((item) => item.id !== collection.id);
+        persist();
+        renderCollections();
+        renderDashboard();
+      },
+    },
+    {
+      id: "manage",
+      label: "Manage collections",
+      icon: "settings",
+      action: () => {
+        deleteCollectionId = "";
+        renderCollections();
+        openDialog($("collections-dialog"));
+      },
+    },
+  ];
+}
+function defaultMenu() {
+  const tab = active();
+  if (tab?.url && !$("browser").hidden) {
+    return [
+      { id: "back", label: "Back", icon: "back", action: () => command(tab, "back") },
+      { id: "forward", label: "Forward", icon: "forward", action: () => command(tab, "forward") },
+      { id: "reload", label: "Reload", icon: "reload", action: () => command(tab, "reload") },
+      { id: "home", label: "Home", icon: "home", action: () => $("nav-home").click() },
+      { id: "sep", separator: true },
+      { id: "new", label: "New tab", icon: "plus", action: () => newTab() },
+      { id: "settings", label: "Settings", icon: "settings", action: openSettings },
+    ];
+  }
+  return [
+    { id: "new", label: "New tab", icon: "plus", action: () => newTab() },
+    {
+      id: "backgrounds",
+      label: "Backgrounds",
+      action: () => {
+        openSettings();
+        studio.showCategory("Home");
+      },
+    },
+    { id: "customize", label: "Customize", icon: "settings", action: openSettings },
+    { id: "log", label: "Connection log", icon: "globe", action: () => openLibrary("tools") },
+    { id: "sep", separator: true },
+    { id: "panic", label: "Panic exit", icon: "x", danger: true, action: panicExit },
+  ];
+}
+function openSurfaceMenu(surface, options) {
+  switch (surface.dataset.menu) {
+    case "tab":
+      menus.open(tabMenu(surface.dataset.tabId), options);
+      break;
+    case "shortcut":
+    case "bookmark-row": {
+      const item = bookmarks.find((entry) => entry.id === surface.dataset.bookmarkId);
+      if (item) menus.open(bookmarkMenu(item), options);
+      break;
+    }
+    case "history-row": {
+      const entry = visits.find((item) => item.id === surface.dataset.visitId);
+      if (entry) menus.open(historyMenu(entry), options);
+      break;
+    }
+    case "collection": {
+      const collection = collections.find((item) => item.id === surface.dataset.collectionId);
+      if (collection) menus.open(collectionMenu(collection), options);
+      break;
+    }
+  }
+}
+document.addEventListener("contextmenu", (event) => {
+  if (menus.suppressAfterLongPress(event)) return;
+  if (event.target.closest(".context-menu2")) {
+    event.preventDefault();
+    return;
+  }
+  const surface = event.target.closest("[data-menu]");
+  if (surface) {
+    event.preventDefault();
+    openSurfaceMenu(surface, { at: { x: event.clientX, y: event.clientY } });
+    return;
+  }
+  const inWorkspace = event.target.closest("#workspace, .topbar, .tabstrip, dialog");
+  if (inWorkspace && !event.target.closest("input, textarea, select, [contenteditable=true]")) {
+    event.preventDefault();
+    menus.open(defaultMenu(), { at: { x: event.clientX, y: event.clientY } });
+  }
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+  const surface = document.activeElement?.closest?.("[data-menu]");
+  if (!surface) {
+    if (document.activeElement?.matches("input,textarea,select,[contenteditable=true]")) return;
+    event.preventDefault();
+    menus.open(defaultMenu(), { anchor: document.activeElement, focusFirst: true });
+    return;
+  }
+  event.preventDefault();
+  openSurfaceMenu(surface, { anchor: surface, focusFirst: true });
+});
+
 function newTab(url = "", engine = settings.engine, select = true, restore = null) {
   if (tabs.length >= 20) return notify("Close a tab before opening more (20-tab limit).");
   const tab = {
@@ -369,6 +838,7 @@ function newTab(url = "", engine = settings.engine, select = true, restore = nul
     title: restore?.title || "new tab",
     url,
     engine,
+    pinned: restore?.pinned === true,
     iframe: null,
     token: null,
     ready: false,
@@ -414,9 +884,12 @@ function selectTab(id) {
 function renderTabs() {
   const area = $("tabs");
   area.replaceChildren();
-  for (const tab of tabs) {
+  // Pinned tabs lead the strip in their own order; the array keeps saved order.
+  const ordered = orderedTabs();
+  for (const tab of ordered) {
     const group = document.createElement("div");
-    group.className = "tab" + (tab.id === activeId ? " active" : "");
+    group.className = "tab" + (tab.id === activeId ? " active" : "") +
+      (tab.pinned ? " pinned" : "");
     const select = button("", () => selectTab(tab.id), "tab-select");
     select.setAttribute("role", "tab");
     select.setAttribute("aria-selected", String(tab.id === activeId));
@@ -428,33 +901,46 @@ function renderTabs() {
       const nextKey = vertical ? "ArrowDown" : "ArrowRight";
       if (![previousKey, nextKey, "Home", "End"].includes(event.key)) return;
       event.preventDefault();
-      const index = tabs.indexOf(tab);
+      const index = ordered.indexOf(tab);
       const target = event.key === "Home"
         ? 0
         : event.key === "End"
-        ? tabs.length - 1
-        : (index + (event.key === nextKey ? 1 : -1) + tabs.length) % tabs.length;
-      selectTab(tabs[target].id);
+        ? ordered.length - 1
+        : (index + (event.key === nextKey ? 1 : -1) + ordered.length) % ordered.length;
+      selectTab(ordered[target].id);
       $("tabs").querySelector('[aria-selected="true"]').focus();
     });
-    group.dataset.number = String(tabs.indexOf(tab) + 1);
-    select.title = tab.url ? `${label(tab.engine)} · ${tab.title}` : "New tab";
+    if (!tab.pinned) group.dataset.number = String(ordered.indexOf(tab) + 1);
+    select.title = tab.url
+      ? `${tab.pinned ? "Pinned · " : ""}${label(tab.engine)} · ${tab.title}`
+      : `${tab.pinned ? "Pinned · " : ""}New tab`;
     const mark = document.createElement("span");
     mark.className = "dot";
     if (tab.state === "loaded") mark.style.background = "var(--accent)";
-    const title = document.createElement("span");
-    title.className = "tab-title";
-    title.textContent = tab.url ? tab.title : "new tab";
-    select.append(mark, title);
+    if (!tab.pinned) {
+      const title = document.createElement("span");
+      title.className = "tab-title";
+      title.textContent = tab.url ? tab.title : "new tab";
+      select.append(mark, title);
+    } else {
+      select.innerHTML =
+        '<svg aria-hidden="true" class="tab-pin-icon"><use href="#i-globe"/></svg>';
+    }
     const close = button("", () => closeTab(tab.id), "tab-close");
     close.setAttribute("aria-label", `Close ${tab.title}`);
     close.title = "Close tab";
     close.innerHTML = '<svg aria-hidden="true"><use href="#i-x"/></svg>';
     group.append(select, close);
     attachTabDrag(group, tab.id);
-    group.addEventListener("contextmenu", (event) => {
-      event.preventDefault();
-      showTabMenu(event, tab.id);
+    group.dataset.menu = "tab";
+    group.dataset.tabId = tab.id;
+    menus.bindLongPress(
+      group,
+      (event) => menus.open(tabMenu(tab.id), { at: { x: event.clientX, y: event.clientY } }),
+    );
+    group.addEventListener("mousedown", (event) => {
+      // Prevent native autoscroll before auxclick removes this target.
+      if (event.button === 1) event.preventDefault();
     });
     group.addEventListener("auxclick", (event) => {
       // Middle-click closes a tab, like a native browser.
@@ -472,6 +958,9 @@ function renderTabs() {
 function updateTabsList() {
   $("tabs-list").hidden = tabs.length < 8;
 }
+function orderedTabs() {
+  return [...tabs.filter((tab) => tab.pinned), ...tabs.filter((tab) => !tab.pinned)];
+}
 function showTabsMenu() {
   const menu = $("tabs-overflow");
   if (!menu.hidden) {
@@ -479,7 +968,7 @@ function showTabsMenu() {
     return;
   }
   menu.replaceChildren();
-  for (const tab of tabs) {
+  for (const tab of orderedTabs()) {
     const item = button("", () => {
       hideTabsMenu();
       selectTab(tab.id);
@@ -525,6 +1014,8 @@ function reorderTab(fromId, beforeId) {
   const from = tabs.findIndex((item) => item.id === fromId);
   const before = tabs.findIndex((item) => item.id === beforeId);
   if (from < 0 || before < 0 || from === before) return;
+  // Pinned and unpinned tabs never mix through a drag; pinning stays explicit.
+  if (!!tabs[from].pinned !== !!tabs[before].pinned) return;
   const [moved] = tabs.splice(from, 1);
   tabs.splice(before, 0, moved);
   renderTabs();
@@ -532,28 +1023,9 @@ function reorderTab(fromId, beforeId) {
 }
 function duplicateTab(id) {
   const source = tabs.find((item) => item.id === id);
-  if (!source?.url) return;
-  const opened = newTab("", source.engine);
-  if (opened) navigate(source.url, opened);
-}
-function showTabMenu(event, id) {
-  const menu = $("context-menu");
-  menu.dataset.tabId = id;
-  menu.hidden = false;
-  const spacing = 8;
-  const width = 180;
-  const left = Math.min(event.clientX, window.innerWidth - width - spacing);
-  menu.style.left = `${left}px`;
-  menu.style.top = `${Math.min(event.clientY, window.innerHeight - 150)}px`;
-}
-function hideTabMenu() {
-  $("context-menu").hidden = true;
-}
-function menuAction(handler) {
-  return () => {
-    hideTabMenu();
-    handler($("context-menu").dataset.tabId);
-  };
+  if (!source) return;
+  const opened = newTab("", source.engine, true, { pinned: source.pinned });
+  if (opened && source.url) navigate(source.url, opened);
 }
 function destroyRuntime(tab) {
   clearTimeout(tab.timer);
@@ -567,17 +1039,24 @@ function destroyRuntime(tab) {
 function closeTab(id) {
   const index = tabs.findIndex((item) => item.id === id);
   if (index < 0) return;
+  const visible = orderedTabs();
+  const visibleIndex = visible.findIndex((item) => item.id === id);
   const closed = tabs[index];
   destroyRuntime(closed);
   tabs.splice(index, 1);
   // Remember the address so a slip of the mouse is recoverable.
   if (closed.url) {
-    closedTabs.unshift({ title: closed.title, url: closed.url, engine: closed.engine });
+    closedTabs.unshift({
+      title: closed.title,
+      url: closed.url,
+      engine: closed.engine,
+      pinned: closed.pinned,
+    });
     closedTabs.length = Math.min(closedTabs.length, 10);
   }
   updateReopen();
   if (!tabs.length) newTab();
-  else if (activeId === id) selectTab(tabs[Math.min(index, tabs.length - 1)].id);
+  else if (activeId === id) selectTab((visible[visibleIndex + 1] || visible[visibleIndex - 1]).id);
   else renderTabs();
   persist();
 }
@@ -589,7 +1068,7 @@ function reopenTab() {
   const saved = closedTabs.shift();
   updateReopen();
   if (!saved) return;
-  const opened = newTab("", saved.engine);
+  const opened = newTab("", saved.engine, true, { pinned: saved.pinned });
   if (opened) navigate(saved.url, opened);
 }
 function errorTab(tab, message) {
@@ -640,6 +1119,9 @@ function startRuntime(tab, target) {
   url.searchParams.set("transport", settings.transport);
   url.searchParams.set("capture", String(settings.captureWindows));
   url.searchParams.set("blocked", settings.blocked);
+  url.searchParams.set("engines", Object.keys(registry).join(","));
+  url.searchParams.set("motion", settings.performance ? "off" : settings.motion);
+  url.searchParams.set("panic", settings.panicKey || "");
   const iframe = document.createElement("iframe");
   iframe.className = "runtime-frame";
   iframe.title = `${label(tab.engine)} runtime`;
@@ -700,6 +1182,26 @@ window.addEventListener("message", (event) => {
     registry[item.engine] === event.origin
   );
   if (!tab) return;
+  if (
+    data.type === "panic" && tab.engine === "headless" && settings.panicKey &&
+    data.key === settings.panicKey
+  ) {
+    panicExit();
+    return;
+  }
+  if (data.type === "open-engine") {
+    if (!ENGINES.some((engine) => engine.id === data.engine) || !registry[data.engine]) return;
+    let url;
+    try {
+      url = new URL(data.url);
+      if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) return;
+    } catch {
+      return;
+    }
+    const opened = newTab("", data.engine);
+    if (opened) navigate(url.href, opened);
+    return;
+  }
   if (data.type === "ready") {
     clearTimeout(tab.timer);
     tab.ready = true;
@@ -775,8 +1277,86 @@ window.addEventListener("message", (event) => {
     );
   }
 });
+let shortcutDragId = null;
+const folderDrops = new WeakSet();
+function attachFolderDrop(section, folder) {
+  if (folderDrops.has(section)) return;
+  folderDrops.add(section);
+  section.addEventListener("dragover", (event) => {
+    if (!shortcutDragId) return;
+    event.preventDefault();
+    section.classList.add("drag-over");
+  });
+  section.addEventListener("dragleave", () => section.classList.remove("drag-over"));
+  section.addEventListener("drop", (event) => {
+    if (!shortcutDragId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    section.classList.remove("drag-over");
+    const item = bookmarks.find((entry) => entry.id === shortcutDragId);
+    shortcutDragId = null;
+    if (!item || (item.folder || "") === (folder || "")) return;
+    item.folder = folder;
+    refreshBookmarks();
+    notify(folder ? `Moved to “${folder}”.` : "Moved out of its folder.");
+  });
+}
+function shortcutCell(item) {
+  const cell = document.createElement("div");
+  cell.className = "shortcut-cell";
+  cell.dataset.menu = "shortcut";
+  cell.dataset.bookmarkId = item.id;
+  cell.draggable = true;
+  const card = button("", () => navigate(item.url), "shortcut-card");
+  const icon = document.createElement("span");
+  icon.className = "site-icon";
+  icon.textContent = (item.name || "?").slice(0, 1).toUpperCase();
+  const name = document.createElement("span");
+  name.className = "site-name";
+  name.textContent = item.name;
+  const domain = document.createElement("small");
+  domain.textContent = new URL(item.url).hostname;
+  const copy = document.createElement("span");
+  copy.className = "shortcut-copy";
+  copy.append(name, domain);
+  card.append(icon, copy);
+  if (item.favorite) {
+    const star = document.createElement("span");
+    star.className = "card-star";
+    star.innerHTML = '<svg aria-hidden="true"><use href="#i-star"/></svg>';
+    card.append(star);
+  }
+  const more = button("", (event) => {
+    event.stopPropagation();
+    menus.open(bookmarkMenu(item), { anchor: more, align: "end", focusFirst: true });
+  }, "card-menu");
+  more.setAttribute("aria-haspopup", "menu");
+  more.setAttribute("aria-label", `${item.name} options`);
+  more.innerHTML =
+    '<svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="4" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="20" cy="12" r="2"/></svg>';
+  cell.append(card, more);
+  menus.bindLongPress(
+    cell,
+    (event) => menus.open(bookmarkMenu(item), { at: { x: event.clientX, y: event.clientY } }),
+  );
+  cell.addEventListener("dragstart", (event) => {
+    shortcutDragId = item.id;
+    event.dataTransfer.effectAllowed = "move";
+    cell.classList.add("dragging");
+  });
+  cell.addEventListener("dragend", () => {
+    cell.classList.remove("dragging");
+    shortcutDragId = null;
+  });
+  return cell;
+}
 function renderShortcuts() {
   const grid = $("shortcut-grid");
+  const collapsed = new Set(
+    [...grid.querySelectorAll(".folder-section:not([open])")].map((section) =>
+      section.dataset.folder
+    ),
+  );
   grid.replaceChildren();
   const items = [...bookmarks];
   if (sort === "az") items.sort((a, b) => a.name.localeCompare(b.name));
@@ -784,28 +1364,39 @@ function renderShortcuts() {
   else if (sort === "recent") {
     items.sort((a, b) => (b.lastOpenedAt ?? b.added ?? 0) - (a.lastOpenedAt ?? a.added ?? 0));
   } else items.sort((a, b) => Number(b.favorite) - Number(a.favorite));
+  const groups = new Map();
   for (const item of items) {
-    const card = button("", () => navigate(item.url), "shortcut-card");
-    const icon = document.createElement("span");
-    icon.className = "site-icon";
-    icon.textContent = (item.name || "?").slice(0, 1).toUpperCase();
-    const name = document.createElement("span");
-    name.className = "site-name";
-    name.textContent = item.name;
-    const domain = document.createElement("small");
-    domain.textContent = new URL(item.url).hostname;
-    const copy = document.createElement("span");
-    copy.className = "shortcut-copy";
-    copy.append(name, domain);
-    card.append(icon, copy);
-    if (item.favorite) {
-      const star = document.createElement("span");
-      star.className = "card-star";
-      star.innerHTML = '<svg aria-hidden="true"><use href="#i-star"/></svg>';
-      card.append(star);
-    }
-    grid.append(card);
+    const folder = item.folder?.trim() || "";
+    if (!groups.has(folder)) groups.set(folder, []);
+    groups.get(folder).push(item);
   }
+  const names = [...groups.keys()].sort((a, b) =>
+    a === "" ? 1 : b === "" ? -1 : a.localeCompare(b)
+  );
+  for (const folder of names) {
+    let target = grid;
+    if (folder) {
+      const section = document.createElement("details");
+      section.className = "folder-section";
+      section.dataset.folder = folder;
+      section.open = !collapsed.has(folder);
+      const summary = document.createElement("summary");
+      const label = document.createElement("span");
+      label.textContent = folder;
+      const count = document.createElement("small");
+      count.textContent = `${groups.get(folder).length}`;
+      summary.append(label, count);
+      const inner = document.createElement("div");
+      inner.className = "shortcut-grid";
+      section.append(summary, inner);
+      attachFolderDrop(section, folder);
+      grid.append(section);
+      target = inner;
+    }
+    for (const item of groups.get(folder)) target.append(shortcutCell(item));
+  }
+  // With folders present, dropping on the open grid returns a card to unfiled.
+  attachFolderDrop(grid, "");
   renderDashboard();
 }
 function dayLabel(time) {
@@ -825,6 +1416,14 @@ function editBookmark(item = null) {
   form.elements.url.value = item?.url || active()?.url || "";
   form.elements.favorite.checked = item?.favorite ?? true;
   form.elements.folder.value = item?.folder || "";
+  // Existing folders suggest themselves; new folders are typed here.
+  const list = $("folder-options");
+  list.replaceChildren();
+  for (const folder of folderList()) {
+    const option = document.createElement("option");
+    option.value = folder;
+    list.append(option);
+  }
   $("bookmark-error").textContent = "";
   openDialog($("bookmark-dialog"));
 }
@@ -838,12 +1437,13 @@ $("bookmark-form").addEventListener("submit", (event) => {
     }
     const id = form.dataset.editId || crypto.randomUUID();
     const item = {
+      ...bookmarks.find((entry) => entry.id === id),
       id,
       name: form.elements.name.value.trim() || url.hostname,
       url: url.href,
-      folder: form.elements.folder.value.trim().slice(0, 40),
+      folder: sanitizeFolder(form.elements.folder.value),
       favorite: form.elements.favorite.checked,
-      added: Date.now(),
+      added: bookmarks.find((entry) => entry.id === id)?.added || Date.now(),
     };
     const index = bookmarks.findIndex((entry) => entry.id === id || entry.url === item.url);
     if (index >= 0) bookmarks[index] = item;
@@ -1015,18 +1615,21 @@ function renderLibrary() {
           dayName.textContent = day;
           heading.append(
             dayName,
-            button("clear day", () => {
-              visits = visits.filter((entry) => dayLabel(entry.time) !== day);
-              persist();
-              renderDashboard();
-              renderLibrary();
-            }, "day-clear"),
+            button("clear day", () => clearDayConfirm(day), "day-clear"),
           );
           container.append(heading);
         }
       }
       const row = document.createElement("div");
       row.className = "library-row";
+      row.dataset.menu = libraryType === "bookmarks" ? "bookmark-row" : "history-row";
+      if (libraryType === "bookmarks") row.dataset.bookmarkId = item.id;
+      else row.dataset.visitId = item.id;
+      menus.bindLongPress(row, (event) =>
+        menus.open(
+          libraryType === "bookmarks" ? bookmarkMenu(item) : historyMenu(item),
+          { at: { x: event.clientX, y: event.clientY } },
+        ));
       const open = button("", () => {
         closeDialog($("library"));
         navigate(item.url);
@@ -1057,13 +1660,17 @@ function renderLibrary() {
         row.append(button("edit", () => editBookmark(item)));
       }
       row.append(button("remove", () => {
-        if (libraryType === "bookmarks") {
-          bookmarks = bookmarks.filter((entry) => entry.id !== item.id);
-        } else visits = visits.filter((entry) => entry.id !== item.id);
-        persist();
-        renderLibrary();
-        renderShortcuts();
+        if (libraryType === "bookmarks") removeBookmarkUndo(item);
+        else removeVisitUndo(item);
       }, "danger"));
+      const more = button("⋯", () =>
+        menus.open(
+          libraryType === "bookmarks" ? bookmarkMenu(item) : historyMenu(item),
+          { anchor: more, focusFirst: true },
+        ), "row-menu");
+      more.setAttribute("aria-label", `Options for ${item.name || item.title}`);
+      more.setAttribute("aria-haspopup", "menu");
+      row.append(more);
       container.append(row);
     }
   }
@@ -1503,31 +2110,13 @@ $("settings-form").elements.namedItem("panicKey").addEventListener("keydown", (e
 });
 $("new-tab").addEventListener("click", () => newTab());
 $("reopen-tab").addEventListener("click", reopenTab);
-$("cm-duplicate").addEventListener("click", menuAction(duplicateTab));
-$("cm-close-others").addEventListener(
-  "click",
-  menuAction((id) => {
-    for (const other of tabs.filter((item) => item.id !== id).map((item) => item.id)) {
-      closeTab(other);
-    }
-    selectTab(id);
-    notify("Other tabs closed.");
-  }),
-);
-$("cm-reopen").addEventListener("click", menuAction(() => reopenTab()));
-$("cm-close").addEventListener("click", menuAction(closeTab));
 document.addEventListener("click", (event) => {
   if (!event.target.closest("#home-more")) $("home-more").open = false;
-  if (!event.target.closest("#context-menu")) hideTabMenu();
   if (!event.target.closest("#tabs-overflow") && !event.target.closest("#tabs-list")) {
     hideTabsMenu();
   }
 });
-document.addEventListener("contextmenu", (event) => {
-  if (!event.target.closest(".tab")) hideTabMenu();
-});
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !$("context-menu").hidden) hideTabMenu();
   if (event.key === "Escape" && !$("tabs-overflow").hidden) hideTabsMenu();
 });
 $("fullscreen").addEventListener("click", async () => {
@@ -1645,7 +2234,7 @@ $("import-data").addEventListener("change", async (event) => {
         id: crypto.randomUUID(),
         name: String(item.name).slice(0, 80),
         url: url.href,
-        folder: String(item.folder || "").slice(0, 40),
+        folder: sanitizeFolder(item.folder),
         favorite: !!item.favorite,
         added: Date.now(),
       };
@@ -1966,7 +2555,10 @@ function renderDashboard() {
     all.findIndex((entry) => entry?.url === item.url) === index
   ).slice(0, 6);
   for (const item of unique) {
-    recent.append(button(item.title || item.url, () => navigate(item.url), "dashboard-link"));
+    const link = button(item.title || item.url, () => navigate(item.url), "dashboard-link");
+    link.dataset.menu = "history-row";
+    link.dataset.visitId = item.id;
+    recent.append(link);
   }
   if (!unique.length) {
     const note = document.createElement("p");
@@ -1977,13 +2569,19 @@ function renderDashboard() {
   const shortcuts = $("collection-shortcuts");
   shortcuts.replaceChildren();
   for (const collection of collections) {
-    shortcuts.append(
-      button(
-        `${collection.name} · ${collection.tabs.length} tabs`,
-        () => restoreCollection(collection),
-        "dashboard-link",
-      ),
+    const link = button(
+      `${collection.name} · ${collection.tabs.length} tabs`,
+      () => restoreCollection(collection),
+      "dashboard-link",
     );
+    link.dataset.menu = "collection";
+    link.dataset.collectionId = collection.id;
+    menus.bindLongPress(
+      link,
+      (event) =>
+        menus.open(collectionMenu(collection), { at: { x: event.clientX, y: event.clientY } }),
+    );
+    shortcuts.append(link);
   }
   if (!collections.length) {
     const note = document.createElement("p");
@@ -2000,6 +2598,8 @@ function renderDashboard() {
   for (const item of bookmarks.filter((item) => item.favorite).slice(0, 12)) {
     const open = button(item.name, () => navigate(item.url));
     open.title = item.url;
+    open.dataset.menu = "bookmark-row";
+    open.dataset.bookmarkId = item.id;
     bookmarksBar.append(open);
   }
   if (!bookmarksBar.children.length) {
@@ -2037,6 +2637,8 @@ function renderCollections() {
   for (const collection of collections) {
     const row = document.createElement("div");
     row.className = "collection-row";
+    row.dataset.menu = "collection";
+    row.dataset.collectionId = collection.id;
     const name = document.createElement("input");
     name.value = collection.name;
     name.maxLength = 60;
