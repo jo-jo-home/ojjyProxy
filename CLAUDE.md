@@ -29,7 +29,7 @@ app from the Deno console later ("Deploy Default Branch").
 | `public/menus.js` | Shared menu host (`createMenuHost`): popovers, keyboard nav, one submenu level, long-press, modal reparenting. Also imported by the headless runtime |
 | `public/workspace.js` | Sanitizers/settings (`sanitizeFolder`, collections, presets); `public/workspace.css` all shell styling |
 | `public/shared.js` | `ENGINES` list (ids, labels, ports, warm assets) |
-| `public/runtime/` | Engine runtime pages: `adapter.js` (engine dispatch), `headless-client.js` (canvas/input/zoom/fullscreen), `index.html`, `websocket.js` |
+| `public/runtime/` | Engine runtime pages: `adapter.js` (engine dispatch), `guard.js` (alpha67 URL-guard plugin, ported from AIO via Proxy3), `headless-client.js` (canvas/input/zoom/fullscreen), `index.html`, `websocket.js` |
 | `headless/` | Remote-session service (Node, port 9100): `server.mjs`, `guards.mjs` (navigation/origin guards), `helpers.mjs` (capture budgets, JPEG sizing, frame decoder), own `package.json` (pinned `playwright-core`) |
 | `relay/server.mjs` | Wisp relay (Node, port 9000) |
 | `scripts/build.mjs` | Builds `public/vendor/*` from pinned npm dists, renames files to neutral names, patches body-carry bugs, writes `public/notices` + `public/asset-manifest.json`. CI asserts no drift |

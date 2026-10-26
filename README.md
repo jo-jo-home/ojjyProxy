@@ -6,8 +6,9 @@ Ultraviolet. Built for a Deno-served website, with the navy theme from
 controls.
 
 **Scramjet 1.1.0 stable is the default.** The primary engine integration reference is the supplied
-**Proxy2** examples. Dependencies are pinned; `npm install` includes
-`@mercuryworkshop/wisp-js@0.4.1`.
+**Proxy3** examples (extracted from AIO’s hybrid proxy integration and cross-checked against
+MercuryWorkshop’s official examples), which supersede the earlier Proxy2 set. Dependencies are
+pinned; `npm install` includes `@mercuryworkshop/wisp-js@0.4.1`.
 
 ## Run locally
 
@@ -28,7 +29,7 @@ automatically.
 | **Scramjet stable (1.1.0)** — default | `localhost:8100` | BareMux → Epoxy or Libcurl                            |
 | Scramjet 2.0.0-alpha                  | `localhost:8200` | Built-in Epoxy                                        |
 | Scramjet 2.0.2-alpha                  | `localhost:8300` | BareMux → Epoxy or Libcurl; custom compatibility glue |
-| Scramjet 2.0.67-alpha.2               | `localhost:8400` | Matched controller 0.0.14 → direct Epoxy or Libcurl   |
+| Scramjet 2.0.67-alpha.2               | `localhost:8400` | Controller 0.0.14 → BareMux BareClient (Epoxy or Libcurl) + URL-guard plugin |
 | Ultraviolet 3.2.10 — legacy           | `localhost:8500` | BareMux → Epoxy or Libcurl                            |
 | Remote session (isolation)            | `localhost:9100` | Remote pixel stream (`HEADLESS_SERVICE=1`)            |
 
@@ -52,6 +53,25 @@ built-in Epoxy for HTTP. +- **Libcurl sends HTTP/2 upgrade headers** (`Upgrade: 
 upgrade-classified requests away from their normal request handler will not serve Libcurl traffic;
 ordinary sites that ignore or gracefully reject the `h2c` offer are unaffected. The test fixture
 runs its WebSocket endpoint on a separate port for exactly this reason.
+
+**Proxy3 port (2026-10-26):** the engine integration reference moved from the Proxy2 examples to
+the supplied **Proxy3** set (same pinned Scramjet artifacts — hashes verified byte-identical;
+the glue is what changed, extracted from AIO's hybrid integration). For the 2.0.67-alpha.2
+engine this brought two changes, both verified through the full deep matrix on Chromium and
+Firefox with both transports:
+
+- The Controller now drives a **BareMux BareClient** (epoxy or libcurl over Wisp) instead of a
+  transport module instantiated directly in the page — the same path the other engines already
+  take. Upstream fetches use `redirect: "manual"` with `duplex: "half"` streaming. One fix over
+  the upstream example: response headers are flattened into repeated `[name, value]` pairs,
+  because libcurl's transport reports each name as an array — without this, server-set cookies
+  never applied on that transport.
+- A **URL-guard plugin** (`public/runtime/guard.js`, ported from AIO) is attached to every
+  proxied frame. Stock 2.0.67-alpha.2 coerces undefined route values into real `/undefined`
+  navigations (TikTok shows its own 404 instead of the feed) and deletes `window.navigation`,
+  which DuckDuckGo-style SPA search depends on. The guard blocks or sanitizes those navigations
+  and reinstates a minimal Navigation API stub. A browser test drives `location = undefined` on
+  a fixture page and asserts the engine stays put.
 
 **Development is split into phases:** see [ROADMAP.md](ROADMAP.md). Phase 1 is the locally verified
 foundation; Phase 2 is configuring your live Deno website and owned relay, followed by
@@ -408,9 +428,10 @@ built-in Epoxy.
 - [Proxy2 version audit](research_notes/ojjyProxy%20multiversion%20project%20blueprint/proxy2-versions.md).
 - [Screenshot-inspired design specification](research_notes/ojjyProxy%20multiversion%20project%20blueprint/screenshot-design.md).
 - Earlier research files are historical; their alpha67-default recommendation is superseded.
-- Primary examples: user-supplied **Proxy2**, shared by **The Fool**, who also helped with UI
-  development. Other references: Mercury Workshop Scramjet, Epoxy, BareMux, Wisp and templates;
-  Titanium Network Ultraviolet; InvisiProxyLTS; ojjy’s game hub.
+- Primary examples: user-supplied **Proxy2** (historical) and now **Proxy3** (current engine
+  integration reference, extracted from AIO's hybrid proxy integration), shared by **The Fool**,
+  who also helped with UI development. Other references: Mercury Workshop Scramjet, Epoxy,
+  BareMux, Wisp and templates; Titanium Network Ultraviolet; InvisiProxyLTS; ojjy’s game hub.
 
 Original application code is published under **AGPL-3.0-only**. Upstream components retain their own
 terms and notices. `public/notices/` preserves available package notices, and

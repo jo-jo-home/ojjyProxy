@@ -116,6 +116,7 @@ test("runtime vendor URLs contain no filter-matched tool names", () => {
     ["../public/runtime/sw.js", true],
     ["../public/runtime/alpha2-client.js", true],
     ["../public/runtime/alpha2-shared.js", true],
+    ["../public/runtime/guard.js", false],
     ["../public/runtime/headless-client.js", false],
     ["../server.ts", true],
   ];

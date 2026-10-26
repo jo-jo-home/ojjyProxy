@@ -67,6 +67,15 @@ test.beforeAll(async () => {
       response.end();
       return;
     }
+    if (pathname === "/garbage-nav") {
+      // Stock Scramjet 2.0.67-alpha.2 turns this into a real /undefined
+      // navigation; the Proxy3 URL-guard plugin must abort it instead.
+      response.writeHead(200, { "content-type": "text/html" });
+      response.end(
+        '<!doctype html><h1>garbage nav fixture</h1><script>setTimeout(()=>{document.body.dataset.garbage="set";location=undefined;},50)</script>',
+      );
+      return;
+    }
     if (pathname === "/api/remote-input") {
       remoteCookie = request.headers.cookie || "";
       let text = "";
@@ -784,6 +793,21 @@ for (const engine of ENGINES.filter((item) => item.id !== "headless")) {
     await page.locator("#nav-back").click();
     await expect(website.getByRole("heading", { name: "owned relay works" }))
       .toBeVisible();
+    if (engine.id === "sj-2.0.67-alpha.2") {
+      // The Proxy3 URL-guard plugin aborts undefined route values instead of
+      // letting the engine navigate to /undefined (TikTok-style 404s).
+      await page.locator("#address").fill("http://localhost:8899/garbage-nav");
+      await page.locator("#address-form").evaluate((form) =>
+        form.requestSubmit()
+      );
+      await expect(
+        website.getByRole("heading", { name: "garbage nav fixture" }),
+      ).toBeVisible();
+      await expect(website.locator("body")).toHaveAttribute("data-garbage", "set");
+      await expect(page.locator("#address")).toHaveValue(
+        "http://localhost:8899/garbage-nav",
+      );
+    }
     if (process.env.DEEP_PROXY_TESTS === "1") {
       // UV on WebKit buffers request bodies but its wasm transport never
       // delivers the POST payload; the whole deep block is skipped there and

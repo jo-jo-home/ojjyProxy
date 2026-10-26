@@ -58,6 +58,20 @@ relay at any time.
 - Validate target-blank and scripted popups individually; distinguish supported capture from unsupported cases.
 - Expand CI with stable, controlled fixtures rather than relying on changing third-party pages.
 
+**Proxy3 integration port (2026-10-26) — completed:** the user-supplied **Proxy3** examples
+replace Proxy2 as the primary engine integration reference. All pinned Scramjet artifacts were
+verified byte-identical by hash, so only the alpha67 engine's glue changed: the Controller now
+drives a BareMux BareClient (epoxy or libcurl over Wisp, `redirect: "manual"` + `duplex: "half"`,
+with response headers flattened to pairs so libcurl's array-valued names keep server cookies
+working), and every proxied frame gets the AIO URL-guard plugin that stops the release's
+`location = undefined` → `/undefined` navigations (TikTok-style 404s) and reinstates a minimal
+Navigation API stub for SPA search. Verified: vendor build zero-diff, 9 Deno + 28 Node checks,
+alpha67 deep matrix (POST, workers, destination WebSockets, redirects, cookies) on Chromium and
+Firefox through both transports, full default suite 51/51 on Chromium and 50 passed + 1
+pre-existing skip on WebKit, plus a negative-control run proving the new guard test fails when
+the plugin is disabled. Plan and decisions:
+[the Proxy3 port plan](.plans/proxy3-alpha67-integration.md).
+
 **Verified so far:** the full deep fixture matrix passes on Chromium (Epoxy and Libcurl), Firefox
 (Epoxy and Libcurl), and WebKit for stable, 2.0.0-alpha, and 2.0.2-alpha. Firefox needed the
 shell's cross-origin isolation removed, request bodies buffered past its absent `Request.body`

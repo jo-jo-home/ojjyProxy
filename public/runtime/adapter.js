@@ -282,40 +282,66 @@ async function initialize() {
       injectPath: "/runtime/vendor/controller.inject.js",
     });
     const serviceworker = await worker();
-    const useLibcurl = params.get("transport") === "libcurl";
-    // The UMD Libcurl bundle announces its embedded WASM asynchronously.
-    // Its old init() constructs a session before waiting, so await this event first.
-    const wasmReady = useLibcurl
-      ? new Promise((resolve) => document.addEventListener("libcurl_load", resolve, { once: true }))
-      : null;
-    await script(`/runtime/vendor/${useLibcurl ? "net-b" : "net-a"}/index.js`);
-    if (wasmReady) await timeout(wasmReady, "Libcurl WebAssembly did not initialize.");
-    const Client = useLibcurl ? CurlMod.default : EpxMod.default;
-    const client = new Client({ wisp: config.wisp });
-    await timeout(client.init(), "Could not initialize the transport.");
+    // Proxy3 (AIO) reference: the Controller drives a BareMux BareClient over
+    // the SharedWorker transport instead of a transport module instantiated in
+    // the page, so upstream fetches use redirect: "manual" and streaming bodies
+    // get duplex: "half" — the same path the other engines already take. The
+    // vendored BareMux carries request bodies across the worker boundary.
+    await bareMux();
+    const bare = new BareMux.BareClient();
+    // Controller 0.0.14 passes raw header pairs; BareMux wants a plain object.
+    const headerObject = (headers) =>
+      Array.isArray(headers) || headers instanceof Headers
+        ? Object.fromEntries(headers)
+        : headers || {};
     const transport = {
       get ready() {
-        return client.ready;
+        return true;
       },
-      init: () => client.init(),
-      connect: (url, protocols, headers, ...callbacks) =>
-        client.connect(url, protocols, Object.fromEntries(headers), ...callbacks),
+      init: async () => {},
+      connect: (url, protocols, headers, onopen, onmessage, onclose, onerror) => {
+        // BareMux takes destination WebSocket headers as the fourth argument;
+        // passing them third (as the upstream example does) silently drops them.
+        const socket = bare.createWebSocket(url, protocols, undefined, headerObject(headers));
+        socket.addEventListener("open", () => onopen(socket.protocol || "", socket.extensions || ""));
+        socket.addEventListener("message", (event) => onmessage(event.data));
+        socket.addEventListener("close", (event) => onclose(event.code, event.reason || ""));
+        socket.addEventListener("error", () => onerror("socket error"));
+        return [(data) => socket.send(data), (code, reason) => socket.close(code, reason)];
+      },
       request: async (remote, method, body, headers, signal) => {
-        // Proxy2's older transports take a header object; controller 0.0.14
-        // uses raw pairs in both directions. Normalize input as well as output.
-        const result = await client.request(
-          remote,
+        const init = {
           method,
-          body,
-          Object.fromEntries(headers),
+          headers: headerObject(headers),
+          body: body ?? undefined,
           signal,
-        );
-        return { ...result, headers: flattenHeaders(result.headers) };
+          redirect: "manual",
+        };
+        if (body != null && !["GET", "HEAD"].includes(method)) init.duplex = "half";
+        const fetched = await bare.fetch(remote.toString(), init);
+        return {
+          body: fetched.body,
+          // BareMux transports report headers differently (libcurl: an object
+          // of arrays per name; epoxy: single values or pairs), and the
+          // controller needs flat [name, value] pairs — including repeated
+          // set-cookie lines, or server-set cookies never apply.
+          headers: flattenHeaders(
+            fetched.rawHeaders ?? [...fetched.headers.entries()],
+          ),
+          status: fetched.status,
+          statusText: fetched.statusText,
+        };
       },
     };
     controller = new api.Controller({ serviceworker, transport });
     await timeout(controller.wait(), "Controller handshake timed out.");
-    frame = controller.createFrame(website);
+    // Proxy3's URL-guard plugin: stock alpha.2 coerces undefined route values
+    // into real /undefined navigations (sites like TikTok then show their own
+    // 404), and it deletes window.navigation, which SPA search relies on.
+    await script("/runtime/guard.js");
+    frame = controller.createFrame(website, {
+      plugins: [createScramjetUrlGuardPlugin(api)].filter(Boolean),
+    });
   } else if (config.engine === "sj-2.0.2-alpha") {
     await bareMux();
     await worker();
