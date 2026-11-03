@@ -237,3 +237,43 @@ Deno.test("compact mode serves the shell and one runtime on a single origin", as
     else Deno.env.set("RUNTIME_ORIGINS", previous.origins);
   }
 });
+Deno.test("PAUSE_SITE=1 serves a paused page for all routes except /health", async () => {
+  const previous = Deno.env.get("PAUSE_SITE");
+  try {
+    Deno.env.set("PAUSE_SITE", "1");
+    const base = "https://proxy.example.com";
+    const home = await handle(new Request(base + "/"));
+    equal(home.status, 503);
+    const homeBody = await home.text();
+    equal(homeBody.includes("ojjy is paused"), true);
+    equal(homeBody.includes("No proxy traffic is being processed"), true);
+    const config = await handle(new Request(base + "/api/config"));
+    equal(config.status, 503);
+    const runtimePage = await handle(new Request(base + "/runtime/index.html"));
+    equal(runtimePage.status, 503);
+    // /health remains available for monitoring
+    const health = await handle(new Request(base + "/health"));
+    equal(health.status, 200);
+    equal((await health.json()).ok, true);
+  } finally {
+    if (previous === undefined) Deno.env.delete("PAUSE_SITE");
+    else Deno.env.set("PAUSE_SITE", previous);
+  }
+});
+Deno.test("PAUSE_SITE unset or empty serves normally", async () => {
+  const previous = Deno.env.get("PAUSE_SITE");
+  try {
+    Deno.env.delete("PAUSE_SITE");
+    const home = await handle(new Request("http://localhost:8000/"));
+    equal(home.status, 200);
+    Deno.env.set("PAUSE_SITE", "");
+    const home2 = await handle(new Request("http://localhost:8000/"));
+    equal(home2.status, 200);
+    Deno.env.set("PAUSE_SITE", "0");
+    const home3 = await handle(new Request("http://localhost:8000/"));
+    equal(home3.status, 200);
+  } finally {
+    if (previous === undefined) Deno.env.delete("PAUSE_SITE");
+    else Deno.env.set("PAUSE_SITE", previous);
+  }
+});

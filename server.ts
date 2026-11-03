@@ -16,6 +16,9 @@ const MIME: Record<string, string> = {
 function environment(name: string) {
   return Deno.env.get(name) || "";
 }
+function isPaused() {
+  return environment("PAUSE_SITE") === "1";
+}
 function isLocal(hostname: string) {
   return ["localhost", "127.0.0.1", "[::1]"].includes(hostname);
 }
@@ -83,6 +86,13 @@ function response(
     },
   });
 }
+function pausedResponse() {
+  return response(
+    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ojjy — paused</title><style>body{margin:0;min-height:100dvh;display:grid;place-content:center;background:#0a1628;color:#c8d6e5;font-family:'Segoe UI',system-ui,sans-serif}main{width:min(340px,calc(100% - 40px));border:1px solid #1e3a5f;background:#111d2e;border-radius:16px;padding:34px;text-align:center}h1{font-weight:300;letter-spacing:.05em;color:#e2e8f0;margin:0 0 6px;font-size:1.7rem}p{color:#90a3b9;font-size:13px;margin:0 0 20px}.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#e05555;margin-right:8px;vertical-align:middle}</style></head><body><main><h1><span class="dot"></span>ojjy is paused</h1><p>This website has been temporarily paused by the operator.</p><p>No proxy traffic is being processed.</p></main></body></html>`,
+    503,
+    MIME.html,
+  );
+}
 // Optional site password gate. Set SITE_PASSWORD on the outer app to require a
 // password before any page or asset is served. The five runtime origins must
 // not set it: they load inside cross-origin iframes that never receive this
@@ -135,6 +145,13 @@ function loginPage(again = false, limited = false) {
 }
 export async function handle(request: Request): Promise<Response> {
   const url = new URL(request.url);
+
+  // Pause gate: when PAUSE_SITE=1, serve a static paused page for all routes
+  // except /health (so monitoring can still check the deployment).
+  if (isPaused() && url.pathname !== "/health") {
+    return pausedResponse();
+  }
+
   const token = await gateToken();
   if (url.pathname === "/auth") {
     if (!token) return response("This website has no password configured.", 404);
